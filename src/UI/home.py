@@ -1,6 +1,6 @@
 import tkinter
 import customtkinter as ctk
-from ..db.CRUD import usernameExists, createUser, readUsername, createRule, readRules
+from src.db.CRUD import usernameExists, createUser, readUsername, createRule, readRules
 
 class App(ctk.CTk):
     def __init__(self):
@@ -183,3 +183,6 @@ def refresh_rule_view(self):
                 pady=2,
                 sticky="w"
             )
+
+if __name__ == "__main__":
+    start_app()

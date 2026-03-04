@@ -1,5 +1,10 @@
 .DS_store
+
 .venv/
+cic_venv/
+
+flows.csv
+
 __pycache__/
 *.pyc
 *.pyo

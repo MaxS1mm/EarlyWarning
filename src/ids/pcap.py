@@ -1,6 +1,17 @@
-from scapy.all import sniff
+import subprocess
 
-def packet_handler(packet):
-    print(packet.summary())
+def start_cicflowmeter():
+    command = [
+        "sudo",
+        "cic_env/bin/cicflowmeter",
+        "-i", "eth0",
+        "-c", "flows.csv"
+    ]
 
-sniff(prn=packet_handler, store=False)
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+    return process
