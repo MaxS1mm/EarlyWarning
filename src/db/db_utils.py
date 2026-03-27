@@ -4,7 +4,8 @@ import platform
 
 def get_db_path() -> Path:
     if platform.system() == "Linux":
-        return Path("/etc/firewall_ids/rules.db")
+        # return Path("/etc/firewall_ids/rules.db")
+        return Path(__file__).resolve().parents[2] / "data" / "rules.db"
     else:
         return Path(__file__).resolve().parents[2] / "data" / "rules.db"
 
