@@ -47,14 +47,10 @@ class App(ctk.CTk):
                       command=lambda: self.show_frame("terminal")).grid(
                           row=4, column=0, padx=20, pady=10, sticky="ew")
 
-        ctk.CTkButton(self.sidebar_frame, text="Settings",
-                      command=lambda: self.show_frame("settings")).grid(
-                          row=5, column=0, padx=20, pady=10, sticky="ew")
-
         # ===================== MAIN FRAMES =====================
         self.frames = {}
 
-        for name in ["logs", "rules", "terminal", "settings"]:
+        for name in ["logs", "rules", "terminal"]:
             frame = ctk.CTkFrame(self)
             frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
             frame.grid_remove()
@@ -99,9 +95,6 @@ class App(ctk.CTk):
         self.terminal_input = ctk.CTkEntry(terminal)
         self.terminal_input.pack(fill="x", padx=10, pady=(0, 10))
         self.terminal_input.bind("<Return>", self.handle_terminal_input)
-
-        # ===================== SETTINGS FRAME =====================
-        # (empty for now)
 
         # Show logs by default
         self.show_frame("logs")
@@ -173,11 +166,6 @@ class App(ctk.CTk):
         finally:
             s.close()
         return ip
-
-    # ===================== SETTINGS =====================
-
-    def change_appearance_mode_event(self, new_mode: str):
-        ctk.set_appearance_mode(new_mode)
 
     # ===================== RULE POPUPS =====================
 
@@ -364,7 +352,10 @@ def refresh_rule_view(app):
     """
     Clear and redraw the rules table on the Rules page.
     Each rule gets an Edit and Delete button.
+    Also reloads the firewall so any rule changes take effect immediately.
     """
+    app.monitor.reload_firewall()
+
     # Remove all widgets currently in the scrollable frame
     for widget in app.rules_frame.winfo_children():
         widget.destroy()

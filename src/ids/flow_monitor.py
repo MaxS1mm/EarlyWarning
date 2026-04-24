@@ -151,6 +151,20 @@ class FlowMonitor:
                 if self.alert_callback:
                     self.alert_callback(ip.src, detail)
 
+    # ---------------- FIREWALL RELOAD ---------------- #
+
+    def reload_firewall(self):
+        from src.db.CRUD import readRules
+
+        was_enabled = self.firewall.enabled
+        if was_enabled:
+            self.firewall.disable()
+
+        self.firewall.load_rules(readRules())
+
+        if was_enabled:
+            self.firewall.enable()
+
     # ---------------- SNIFFER CONTROL ---------------- #
 
     def start(self, iface=None):
