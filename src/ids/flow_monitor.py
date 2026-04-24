@@ -1,5 +1,6 @@
 import time
 import threading
+import scapy.all as scapy
 from scapy.all import AsyncSniffer, IP, TCP, UDP, ICMP
 from .port_scan_detector import PortScanDetector
 from .firewall import Firewall
@@ -167,8 +168,25 @@ class FlowMonitor:
 
     # ---------------- SNIFFER CONTROL ---------------- #
 
-    def start(self, iface=None):
-        self.sniffer = AsyncSniffer(prn=self._handle_packet, store=False)
+    def _get_iface(self):
+        """
+        Find the active non-loopback network interface.
+        Falls back to scapy's default if nothing is found.
+        """
+        for name, addrs in scapy.conf.ifaces.items():
+            # Skip loopback
+            if name == "lo" or name.startswith("lo"):
+                continue
+            # Pick the first interface that has an IPv4 address
+            if hasattr(addrs, "ip") and addrs.ip and addrs.ip != "0.0.0.0":
+                return name
+        return None
+
+    def start(self):
+        iface = self._get_iface()
+        self.sniffer = AsyncSniffer(
+            iface=iface, prn=self._handle_packet, store=False
+        )
         self.sniffer.start()
 
     def stop(self):
