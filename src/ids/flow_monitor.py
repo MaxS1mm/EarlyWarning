@@ -2,6 +2,7 @@ import time
 import threading
 from scapy.all import AsyncSniffer, IP, TCP, UDP, ICMP
 from .port_scan_detector import PortScanDetector
+from .firewall import Firewall
 from .notifications import notification
 
 
@@ -13,29 +14,27 @@ class FlowMonitor:
         self.TIMEOUT = 60
 
         self.portscan = PortScanDetector()
+        self.firewall = Firewall()
         self.alert_callback = alert_callback
-
         self.log_file = log_file
 
     # ---------------- LOGGING ---------------- #
+
     def notify_alert(self, message):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         notification(f"[{timestamp}]", f"{message}")
 
-
     def log_alert(self, message):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        log_msg = f"[{timestamp}] {message}"
-
         with open(self.log_file, "a") as f:
-            f.write(log_msg + "\n")
+            f.write(f"[{timestamp}] {message}\n")
 
     # ---------------- CONNECTION TRACKING ---------------- #
+
     def _normalize_key(self, proto, src, sport, dst, dport):
         if (src, sport) < (dst, dport):
             return (proto, src, sport, dst, dport)
-        else:
-            return (proto, dst, dport, src, sport)
+        return (proto, dst, dport, src, sport)
 
     def _handle_packet(self, pkt):
         if IP not in pkt:
@@ -56,9 +55,34 @@ class FlowMonitor:
         else:
             return
 
-        key = self._normalize_key(proto, ip.src, l4.sport, ip.dst, l4.dport)
+        src_port = getattr(l4, "sport", 0)
+        dst_port = getattr(l4, "dport", 0)
 
-        # ---------------- CONNECTION TRACKING ---------------- #
+        # ---------------- FIREWALL CHECK ---------------- #
+        action, matched_rule = self.firewall.check_packet(
+            proto, ip.src, ip.dst, src_port, dst_port
+        )
+
+        if action == "deny":
+            msg = (f"FIREWALL BLOCKED {proto} {ip.src}:{src_port} "
+                   f"-> {ip.dst}:{dst_port}")
+            self.log_alert(msg)
+            if self.alert_callback:
+                self.alert_callback(ip.src, {"type": "firewall_block",
+                                             "rule": matched_rule})
+            return  # drop the packet — don't track it
+
+        if action == "alert":
+            msg = (f"FIREWALL ALERT {proto} {ip.src}:{src_port} "
+                   f"-> {ip.dst}:{dst_port}")
+            self.log_alert(msg)
+            if self.alert_callback:
+                self.alert_callback(ip.src, {"type": "firewall_alert",
+                                             "rule": matched_rule})
+
+        # ---------------- CONNECTION TABLE ---------------- #
+        key = self._normalize_key(proto, ip.src, src_port, ip.dst, dst_port)
+
         with self.lock:
             if key not in self.connections:
                 self.connections[key] = {
@@ -84,26 +108,58 @@ class FlowMonitor:
                     self.connections[key]["state"] = "EST"
 
         # ---------------- PORT SCAN DETECTION ---------------- #
-        if proto == "TCP" and l4.flags == "S":  # SYN only
-            is_scan, data = self.portscan.process_packet(
-                ip.src, l4.dport, now
+        if proto == "TCP":
+            flags = int(l4.flags)
+            fin = bool(flags & 0x01)
+            syn = bool(flags & 0x02)
+            rst = bool(flags & 0x04)
+            psh = bool(flags & 0x08)
+            urg = bool(flags & 0x20)
+
+            scan_type = None
+
+            if syn and not fin and not rst:
+                # SYN-only — classic stealth scan
+                scan_type = "SYN"
+            elif fin and not syn and not rst and not psh and not urg:
+                # FIN scan
+                scan_type = "FIN"
+            elif flags == 0:
+                # NULL scan — no flags at all
+                scan_type = "NULL"
+            elif fin and psh and urg and not syn:
+                # XMAS scan
+                scan_type = "XMAS"
+
+            if scan_type:
+                is_scan, detail = self.portscan.process_packet(
+                    ip.src, dst_port, now, scan_type
+                )
+                if is_scan:
+                    msg = (f"PORT SCAN detected from {ip.src} | "
+                           f"Type: {detail['scan_type']} | "
+                           f"Ports probed: {detail['total_ports']}")
+                    self.notify_alert(msg)
+                    self.log_alert(msg)
+                    if self.alert_callback:
+                        self.alert_callback(ip.src, detail)
+
+        elif proto == "UDP":
+            is_scan, detail = self.portscan.process_packet(
+                ip.src, dst_port, now, "UDP"
             )
-
             if is_scan:
-                msg = f"⚠️ Port scan detected from {ip.src} | Ports: {len(data['ports'])}"
-
+                msg = (f"UDP SCAN detected from {ip.src} | "
+                       f"Ports probed: {detail['total_ports']}")
                 self.notify_alert(msg)
                 self.log_alert(msg)
-
                 if self.alert_callback:
-                    self.alert_callback(ip.src, data)
+                    self.alert_callback(ip.src, detail)
 
     # ---------------- SNIFFER CONTROL ---------------- #
+
     def start(self, iface=None):
-        self.sniffer = AsyncSniffer(
-            prn=self._handle_packet,
-            store=False
-        )
+        self.sniffer = AsyncSniffer(prn=self._handle_packet, store=False)
         self.sniffer.start()
         self.notify_alert("Sniffer started")
 
@@ -113,6 +169,7 @@ class FlowMonitor:
             self.notify_alert("Sniffer stopped")
 
     # ---------------- CONNECTION VIEW ---------------- #
+
     def get_active_connections(self):
         now = time.time()
         active = []
@@ -120,11 +177,9 @@ class FlowMonitor:
         with self.lock:
             for key in list(self.connections.keys()):
                 data = self.connections[key]
-
                 if now - data["last_seen"] > self.TIMEOUT:
                     del self.connections[key]
                     continue
-
                 active.append((key, data))
 
         return active
