@@ -21,15 +21,8 @@ def initialize_database():
     cursor = conn.cursor()
 
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        username TEXT NOT NULL
-    );
-    """)
-
-    cursor.execute("""
     CREATE TABLE IF NOT EXISTS rules (
         rid INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
         protocol TEXT CHECK(protocol IN ('tcp','udp','icmp','any')) NOT NULL,
         src_ip TEXT,
         dst_ip TEXT,

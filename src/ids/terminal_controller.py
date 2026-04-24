@@ -6,27 +6,37 @@ Handles all commands typed into the in-app terminal.
 
 import re
 import threading
-from src.db.CRUD import readRules
+from src.db.CRUD import readRules, readRuleById, createRule, updateRule, deleteRule
 from .port_scanner import run_scan, QUICK_PORTS, METASPLOITABLE_VULNS
+
+# These are the only values the database accepts
+VALID_PROTOCOLS = ("tcp", "udp", "icmp", "any")
+VALID_ACTIONS   = ("allow", "deny", "alert")
 
 
 class TerminalController:
-    def __init__(self, monitor, print_func):
+    def __init__(self, monitor, print_func, refresh_rules_func=None):
         """
-        monitor    – FlowMonitor instance (gives us the firewall + detector)
-        print_func – function that writes a line to the terminal UI
+        monitor            – FlowMonitor instance (firewall + detector)
+        print_func         – writes a line to the terminal UI
+        refresh_rules_func – called after rule changes so the Rules page
+                             updates automatically (can be None)
         """
         self.monitor = monitor
         self.print = print_func
+        self.refresh_rules = refresh_rules_func
 
         self.commands = {
-            "help":     self.cmd_help,
-            "clear":    self.cmd_clear,
+            "help":       self.cmd_help,
+            "clear":      self.cmd_clear,
             "connections": self.cmd_connections,
-            "scan":     self.cmd_scan,
-            "rules":    self.cmd_rules,
-            "firewall": self.cmd_firewall,
-            "detector": self.cmd_detector,
+            "scan":       self.cmd_scan,
+            "rules":      self.cmd_rules,
+            "addrule":    self.cmd_addrule,
+            "editrule":   self.cmd_editrule,
+            "deleterule": self.cmd_deleterule,
+            "firewall":   self.cmd_firewall,
+            "detector":   self.cmd_detector,
         }
 
     # ===================== PARSER =====================
@@ -54,9 +64,9 @@ class TerminalController:
     # ===================== COMMANDS =====================
 
     def cmd_help(self, args):
-        self.print("=" * 50)
+        self.print("=" * 60)
         self.print("Available commands")
-        self.print("=" * 50)
+        self.print("=" * 60)
         self.print("")
         self.print("  connections")
         self.print("      Show active network connections.")
@@ -66,26 +76,37 @@ class TerminalController:
         self.print("  scan <ip> full")
         self.print("      Scan all ports 1-1024.")
         self.print("  scan <ip> ports <start>-<end>")
-        self.print("      Scan a custom port range, e.g.: scan 192.168.1.5 ports 20-100")
-        self.print("")
-        self.print("  firewall status")
-        self.print("      Show whether the firewall is on and its statistics.")
-        self.print("  firewall on")
-        self.print("      Enable the firewall (applies rules from the Rules page).")
-        self.print("  firewall off")
-        self.print("      Disable the firewall.")
-        self.print("  firewall reload")
-        self.print("      Reload rules from the database (use after adding new rules).")
-        self.print("")
-        self.print("  detector status")
-        self.print("      Show port-scan detector settings and what scan types it catches.")
+        self.print("      Scan a custom port range.")
         self.print("")
         self.print("  rules")
         self.print("      Print all firewall rules from the database.")
         self.print("")
+        self.print("  addrule <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>")
+        self.print("      Add a new rule.  Use 'any' or '0' for wildcards.")
+        self.print("      Example: addrule tcp any 192.168.1.10 0 80 deny")
+        self.print("")
+        self.print("  editrule <id> <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>")
+        self.print("      Update an existing rule by its ID.")
+        self.print("      Example: editrule 3 tcp any 192.168.1.10 0 443 alert")
+        self.print("")
+        self.print("  deleterule <id>")
+        self.print("      Delete a rule by its ID.")
+        self.print("")
+        self.print("  firewall status")
+        self.print("      Show whether the firewall is on and its statistics.")
+        self.print("  firewall on")
+        self.print("      Enable the firewall.")
+        self.print("  firewall off")
+        self.print("      Disable the firewall.")
+        self.print("  firewall reload")
+        self.print("      Reload rules from the database.")
+        self.print("")
+        self.print("  detector status")
+        self.print("      Show port-scan detector settings.")
+        self.print("")
         self.print("  clear")
         self.print("      Clear this terminal output.")
-        self.print("=" * 50)
+        self.print("=" * 60)
 
     def cmd_clear(self, args):
         self.print("__CLEAR__")
@@ -108,12 +129,6 @@ class TerminalController:
     # ------------------------------------------------------------------ #
 
     def cmd_scan(self, args):
-        """
-        Usage:
-          scan <ip>
-          scan <ip> full
-          scan <ip> ports <start>-<end>
-        """
         if not args:
             self.print("Usage: scan <ip>  |  scan <ip> full  |  scan <ip> ports 20-100")
             return
@@ -123,9 +138,7 @@ class TerminalController:
             self.print(f"'{ip}' is not a valid IPv4 address.")
             return
 
-        # --- decide which ports to scan ---
         if len(args) == 1:
-            # Quick scan: just the Metasploitable 2 known ports
             ports = QUICK_PORTS
             self.print(f"Quick scan on {ip} ({len(ports)} known-vulnerable ports)")
 
@@ -144,24 +157,190 @@ class TerminalController:
             self.print("Usage: scan <ip>  |  scan <ip> full  |  scan <ip> ports 20-100")
             return
 
-        # Run the scan in a background thread so the UI stays responsive
         def _run():
             run_scan(ip, ports, self.print)
 
         threading.Thread(target=_run, daemon=True).start()
 
     # ------------------------------------------------------------------ #
+    # RULES — list, add, edit, delete
+    # ------------------------------------------------------------------ #
+
+    def cmd_rules(self, args):
+        """Print all firewall rules from the database."""
+        rules = readRules()
+        if not rules:
+            self.print("No rules in database.")
+            return
+
+        # Table header
+        header = (f"{'ID':<5} {'Protocol':<10} {'Src IP':<16} {'Dst IP':<16} "
+                  f"{'SPort':<7} {'DPort':<7} Action")
+        self.print(header)
+        self.print("-" * len(header))
+
+        for r in rules:
+            self.print(
+                f"{str(r['rid']):<5} "
+                f"{str(r['protocol']):<10} "
+                f"{str(r['src_ip'] or 'any'):<16} "
+                f"{str(r['dst_ip'] or 'any'):<16} "
+                f"{str(r['src_port'] or 'any'):<7} "
+                f"{str(r['dst_port'] or 'any'):<7} "
+                f"{str(r['action'])}"
+            )
+
+    def cmd_addrule(self, args):
+        """
+        Add a new firewall rule.
+        Usage: addrule <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>
+
+        Use 'any' for wildcard IPs and '0' for wildcard ports.
+        Example: addrule tcp any 192.168.1.10 0 80 deny
+        """
+        if len(args) != 6:
+            self.print("Usage: addrule <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>")
+            self.print("Example: addrule tcp any 192.168.1.10 0 80 deny")
+            return
+
+        protocol = args[0].lower()
+        src_ip   = args[1]
+        dst_ip   = args[2]
+        action   = args[5].lower()
+
+        # Validate protocol
+        if protocol not in VALID_PROTOCOLS:
+            self.print(f"Invalid protocol '{protocol}'. Must be one of: {', '.join(VALID_PROTOCOLS)}")
+            return
+
+        # Validate action
+        if action not in VALID_ACTIONS:
+            self.print(f"Invalid action '{action}'. Must be one of: {', '.join(VALID_ACTIONS)}")
+            return
+
+        # Parse ports — must be numbers
+        try:
+            src_port = int(args[3])
+            dst_port = int(args[4])
+        except ValueError:
+            self.print("Ports must be numbers. Use 0 for 'any'.")
+            return
+
+        if src_port < 0 or src_port > 65535 or dst_port < 0 or dst_port > 65535:
+            self.print("Ports must be between 0 and 65535.")
+            return
+
+        # Normalise wildcard IPs — store as empty string in the database
+        if src_ip.lower() in ("any", "*", "0"):
+            src_ip = ""
+        if dst_ip.lower() in ("any", "*", "0"):
+            dst_ip = ""
+
+        # Save to database
+        createRule(protocol, src_ip, dst_ip, src_port, dst_port, action)
+        self.print(f"Rule added: {protocol} {src_ip or 'any'}:{src_port} -> {dst_ip or 'any'}:{dst_port} [{action}]")
+
+        # Refresh the Rules page in the UI if we have a callback
+        if self.refresh_rules:
+            self.refresh_rules()
+
+    def cmd_editrule(self, args):
+        """
+        Update an existing rule by its ID.
+        Usage: editrule <id> <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>
+
+        Example: editrule 3 tcp any 192.168.1.10 0 443 alert
+        """
+        if len(args) != 7:
+            self.print("Usage: editrule <id> <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>")
+            self.print("Example: editrule 3 tcp any 192.168.1.10 0 443 alert")
+            return
+
+        # Parse the rule ID
+        try:
+            rid = int(args[0])
+        except ValueError:
+            self.print("Rule ID must be a number.")
+            return
+
+        # Check the rule actually exists
+        existing = readRuleById(rid)
+        if existing is None:
+            self.print(f"No rule found with ID {rid}. Use 'rules' to see all rule IDs.")
+            return
+
+        protocol = args[1].lower()
+        src_ip   = args[2]
+        dst_ip   = args[3]
+        action   = args[6].lower()
+
+        # Validate protocol
+        if protocol not in VALID_PROTOCOLS:
+            self.print(f"Invalid protocol '{protocol}'. Must be one of: {', '.join(VALID_PROTOCOLS)}")
+            return
+
+        # Validate action
+        if action not in VALID_ACTIONS:
+            self.print(f"Invalid action '{action}'. Must be one of: {', '.join(VALID_ACTIONS)}")
+            return
+
+        # Parse ports
+        try:
+            src_port = int(args[4])
+            dst_port = int(args[5])
+        except ValueError:
+            self.print("Ports must be numbers. Use 0 for 'any'.")
+            return
+
+        if src_port < 0 or src_port > 65535 or dst_port < 0 or dst_port > 65535:
+            self.print("Ports must be between 0 and 65535.")
+            return
+
+        # Normalise wildcard IPs
+        if src_ip.lower() in ("any", "*", "0"):
+            src_ip = ""
+        if dst_ip.lower() in ("any", "*", "0"):
+            dst_ip = ""
+
+        # Update in database
+        updateRule(rid, protocol, src_ip, dst_ip, src_port, dst_port, action)
+        self.print(f"Rule #{rid} updated: {protocol} {src_ip or 'any'}:{src_port} -> {dst_ip or 'any'}:{dst_port} [{action}]")
+
+        if self.refresh_rules:
+            self.refresh_rules()
+
+    def cmd_deleterule(self, args):
+        """
+        Delete a rule by its ID.
+        Usage: deleterule <id>
+        """
+        if len(args) != 1:
+            self.print("Usage: deleterule <id>")
+            return
+
+        try:
+            rid = int(args[0])
+        except ValueError:
+            self.print("Rule ID must be a number.")
+            return
+
+        # Check the rule exists before deleting
+        existing = readRuleById(rid)
+        if existing is None:
+            self.print(f"No rule found with ID {rid}. Use 'rules' to see all rule IDs.")
+            return
+
+        deleteRule(rid)
+        self.print(f"Rule #{rid} deleted.")
+
+        if self.refresh_rules:
+            self.refresh_rules()
+
+    # ------------------------------------------------------------------ #
     # FIREWALL
     # ------------------------------------------------------------------ #
 
     def cmd_firewall(self, args):
-        """
-        Usage:
-          firewall status
-          firewall on
-          firewall off
-          firewall reload
-        """
         fw = self.monitor.firewall
 
         if not args:
@@ -187,7 +366,7 @@ class TerminalController:
             self.print("  No match -> allow by default (permissive policy).")
 
         elif sub == "on":
-            fw.load_rules(readRules())   # always reload fresh rules when enabling
+            fw.load_rules(readRules())
             fw.enable()
             self.print(f"Firewall ON — {len(fw.rules)} rule(s) loaded.")
 
@@ -196,8 +375,6 @@ class TerminalController:
             self.print("Firewall OFF — all traffic passes through.")
 
         elif sub == "reload":
-            # If the firewall is currently on, turn it off first so the
-            # old nftables rules are removed before we load new ones.
             was_enabled = fw.enabled
             if was_enabled:
                 fw.disable()
@@ -217,7 +394,6 @@ class TerminalController:
     # ------------------------------------------------------------------ #
 
     def cmd_detector(self, args):
-        """Show the port-scan detector settings and explain what it catches."""
         det = self.monitor.portscan
 
         self.print("=" * 55)
@@ -237,25 +413,6 @@ class TerminalController:
             self.print(f"    {desc}")
             self.print("")
         self.print("=" * 55)
-
-    # ------------------------------------------------------------------ #
-    # RULES
-    # ------------------------------------------------------------------ #
-
-    def cmd_rules(self, args):
-        rules = readRules()
-        if not rules:
-            self.print("No rules in database. Add some on the Rules page.")
-            return
-        header = f"{'Protocol':<10} {'Src IP':<16} {'Dst IP':<16} {'SPort':<7} {'DPort':<7} Action"
-        self.print(header)
-        self.print("-" * len(header))
-        for r in rules:
-            self.print(
-                f"{str(r['protocol']):<10} {str(r['src_ip']):<16} "
-                f"{str(r['dst_ip']):<16} {str(r['src_port']):<7} "
-                f"{str(r['dst_port']):<7} {str(r['action'])}"
-            )
 
     # ===================== HELPERS =====================
 
