@@ -3,7 +3,6 @@ import threading
 from scapy.all import AsyncSniffer, IP, TCP, UDP, ICMP
 from .port_scan_detector import PortScanDetector
 from .firewall import Firewall
-from .notifications import notification
 
 
 class FlowMonitor:
@@ -19,10 +18,6 @@ class FlowMonitor:
         self.log_file = log_file
 
     # ---------------- LOGGING ---------------- #
-
-    def notify_alert(self, message):
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        notification(f"[{timestamp}]", f"{message}")
 
     def log_alert(self, message):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -139,7 +134,7 @@ class FlowMonitor:
                     msg = (f"PORT SCAN detected from {ip.src} | "
                            f"Type: {detail['scan_type']} | "
                            f"Ports probed: {detail['total_ports']}")
-                    self.notify_alert(msg)
+
                     self.log_alert(msg)
                     if self.alert_callback:
                         self.alert_callback(ip.src, detail)
@@ -151,7 +146,7 @@ class FlowMonitor:
             if is_scan:
                 msg = (f"UDP SCAN detected from {ip.src} | "
                        f"Ports probed: {detail['total_ports']}")
-                self.notify_alert(msg)
+
                 self.log_alert(msg)
                 if self.alert_callback:
                     self.alert_callback(ip.src, detail)
@@ -161,12 +156,10 @@ class FlowMonitor:
     def start(self, iface=None):
         self.sniffer = AsyncSniffer(prn=self._handle_packet, store=False)
         self.sniffer.start()
-        self.notify_alert("Sniffer started")
 
     def stop(self):
         if self.sniffer and self.sniffer.running:
             self.sniffer.stop()
-            self.notify_alert("Sniffer stopped")
 
     # ---------------- CONNECTION VIEW ---------------- #
 

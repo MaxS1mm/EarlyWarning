@@ -22,8 +22,6 @@ class App(ctk.CTk):
             print_func=self.terminal_print,
             refresh_rules_func=lambda: refresh_rule_view(self)
         )
-        self.updating = False
-
         # Layout: sidebar | main content
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -52,17 +50,6 @@ class App(ctk.CTk):
         ctk.CTkButton(self.sidebar_frame, text="Settings",
                       command=lambda: self.show_frame("settings")).grid(
                           row=5, column=0, padx=20, pady=10, sticky="ew")
-
-        # Start / Stop monitoring
-        ctk.CTkButton(self.sidebar_frame, text="Start Monitoring",
-                      fg_color="#2a7d4f", hover_color="#1e5c39",
-                      command=self.start_monitoring).grid(
-                          row=8, column=0, padx=20, pady=(30, 5), sticky="ew")
-
-        ctk.CTkButton(self.sidebar_frame, text="Stop Monitoring",
-                      fg_color="#7d2a2a", hover_color="#5c1e1e",
-                      command=self.stop_monitoring).grid(
-                          row=9, column=0, padx=20, pady=(0, 20), sticky="ew")
 
         # ===================== MAIN FRAMES =====================
         self.frames = {}
@@ -191,23 +178,6 @@ class App(ctk.CTk):
 
     def change_appearance_mode_event(self, new_mode: str):
         ctk.set_appearance_mode(new_mode)
-
-    # ===================== MONITOR =====================
-
-    def start_monitoring(self):
-        self.monitor.start()
-        self.updating = True
-        self._write_log(f"Monitoring started.\n")
-
-    def stop_monitoring(self):
-        self.monitor.stop()
-        self.updating = False
-        self._write_log(f"Monitoring stopped.\n")
-
-    def _write_log(self, msg):
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        self.log_textbox.insert("end", f"[{timestamp}]  {msg}")
-        self.log_textbox.see("end")
 
     # ===================== RULE POPUPS =====================
 
@@ -376,6 +346,9 @@ class App(ctk.CTk):
 
 def start_app():
     app = App()
+
+    # Start monitoring as soon as the app launches
+    app.monitor.start()
 
     def on_close():
         app.monitor.stop()
