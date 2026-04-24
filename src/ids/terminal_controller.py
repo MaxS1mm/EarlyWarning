@@ -98,8 +98,7 @@ class TerminalController:
         self.print("      Enable the firewall.")
         self.print("  firewall off")
         self.print("      Disable the firewall.")
-        self.print("  firewall reload")
-        self.print("      Reload rules from the database.")
+        self.print("      Rules are reloaded automatically when added, edited, or deleted.")
         self.print("")
         self.print("  detector status")
         self.print("      Show port-scan detector settings.")
@@ -344,7 +343,7 @@ class TerminalController:
         fw = self.monitor.firewall
 
         if not args:
-            self.print("Usage: firewall <status|on|off|reload>")
+            self.print("Usage: firewall <status|on|off>")
             return
 
         sub = args[0].lower()
@@ -366,28 +365,22 @@ class TerminalController:
             self.print("  No match -> allow by default (permissive policy).")
 
         elif sub == "on":
+            if fw.enabled:
+                self.print("The firewall is already activated.")
+                return
             fw.load_rules(readRules())
             fw.enable()
             self.print(f"Firewall ON — {len(fw.rules)} rule(s) loaded.")
 
         elif sub == "off":
+            if not fw.enabled:
+                self.print("The firewall is already deactivated.")
+                return
             fw.disable()
             self.print("Firewall OFF — all traffic passes through.")
 
-        elif sub == "reload":
-            was_enabled = fw.enabled
-            if was_enabled:
-                fw.disable()
-
-            fw.load_rules(readRules())
-
-            if was_enabled:
-                fw.enable()
-
-            self.print(f"Rules reloaded — {len(fw.rules)} rule(s) now active.")
-
         else:
-            self.print(f"Unknown sub-command '{sub}'. Use: status, on, off, reload")
+            self.print(f"Unknown sub-command '{sub}'. Use: status, on, off")
 
     # ------------------------------------------------------------------ #
     # DETECTOR
