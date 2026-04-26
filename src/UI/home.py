@@ -20,7 +20,8 @@ class App(ctk.CTk):
         self.terminal = TerminalController(
             monitor=self.monitor,
             print_func=self.terminal_print,
-            refresh_rules_func=lambda: refresh_rule_view(self)
+            refresh_rules_func=lambda: refresh_rule_view(self),
+            start_live_connections_func=self._start_live_connections
         )
         # Layout: sidebar | main content
         self.grid_columnconfigure(1, weight=1)
@@ -35,26 +36,47 @@ class App(ctk.CTk):
                      font=ctk.CTkFont(size=20, weight="bold")).grid(
                          row=0, column=0, padx=20, pady=(20, 10))
 
+        ctk.CTkButton(self.sidebar_frame, text="Connections",
+                      command=lambda: self.show_frame("connections")).grid(
+                          row=2, column=0, padx=20, pady=10, sticky="ew")
+
         ctk.CTkButton(self.sidebar_frame, text="Logs",
                       command=lambda: self.show_frame("logs")).grid(
-                          row=2, column=0, padx=20, pady=10, sticky="ew")
+                          row=3, column=0, padx=20, pady=10, sticky="ew")
 
         ctk.CTkButton(self.sidebar_frame, text="Rules",
                       command=lambda: self.show_frame("rules")).grid(
-                          row=3, column=0, padx=20, pady=10, sticky="ew")
+                          row=4, column=0, padx=20, pady=10, sticky="ew")
 
         ctk.CTkButton(self.sidebar_frame, text="Terminal",
                       command=lambda: self.show_frame("terminal")).grid(
-                          row=4, column=0, padx=20, pady=10, sticky="ew")
+                          row=5, column=0, padx=20, pady=10, sticky="ew")
 
         # ===================== MAIN FRAMES =====================
         self.frames = {}
 
-        for name in ["logs", "rules", "terminal"]:
+        for name in ["connections", "logs", "rules", "terminal"]:
             frame = ctk.CTkFrame(self)
             frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
             frame.grid_remove()
             self.frames[name] = frame
+
+        # ===================== CONNECTIONS FRAME =====================
+        conn_frame = self.frames["connections"]
+        conn_frame.grid_rowconfigure(1, weight=1)
+        conn_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(conn_frame, text="Active Connections",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(10, 5))
+
+        self.conn_textbox = ctk.CTkTextbox(
+            conn_frame, wrap="none", fg_color="#0d0d0d",
+            text_color="#e0e0e0", font=("Courier", 12)
+        )
+        self.conn_textbox.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Refresh the connections list every 2 seconds
+        self._refresh_connections()
 
         # ===================== LOGS FRAME =====================
         logs_frame = self.frames["logs"]
@@ -104,6 +126,12 @@ class App(ctk.CTk):
         self.command_history = []
         self.history_index = -1
 
+        # Live connections mode — when active, the terminal auto-refreshes
+        # the connections table every 2 seconds.  Ctrl+C stops it.
+        # _live_conn_timer holds the after() ID so we can cancel it.
+        self._live_conn_timer = None
+        self.terminal_input.bind("<Control-c>", self._stop_live_connections)
+
         # Show logs by default
         self.show_frame("logs")
 
@@ -145,6 +173,93 @@ class App(ctk.CTk):
 
     def _clear_logs(self):
         self.log_textbox.delete("1.0", "end")
+
+    # ===================== CONNECTIONS =====================
+
+    def _refresh_connections(self):
+        connections = self.monitor.get_active_connections()
+
+        self.conn_textbox.configure(state="normal")
+        self.conn_textbox.delete("1.0", "end")
+
+        header = f"{'Proto':<8} {'Source':<24} {'Destination':<24} {'State':<8} {'Pkts':<8} {'Bytes'}\n"
+        self.conn_textbox.insert("end", header)
+        self.conn_textbox.insert("end", "-" * 80 + "\n")
+
+        if not connections:
+            self.conn_textbox.insert("end", "No active connections.\n")
+        else:
+            for (proto, src, sport, dst, dport), data in connections:
+                line = (f"{proto:<8} {src + ':' + str(sport):<24} "
+                        f"{dst + ':' + str(dport):<24} {data['state']:<8} "
+                        f"{data['packets']:<8} {data['bytes']}\n")
+                self.conn_textbox.insert("end", line)
+
+        self.conn_textbox.configure(state="disabled")
+
+        # Schedule the next refresh in 2 seconds
+        self.after(2000, self._refresh_connections)
+
+    # ===================== LIVE CONNECTIONS (TERMINAL) =====================
+
+    def _start_live_connections(self):
+        # If already running, do nothing
+        if self._live_conn_timer is not None:
+            return
+
+        # Disable the input field so the user can't type other commands
+        self.terminal_input.configure(state="disabled")
+
+        self.terminal_print("Live connections view — press Ctrl+C to stop.")
+        self.terminal_print("")
+        self._live_conn_tick()
+
+    def _live_conn_tick(self):
+        connections = self.monitor.get_active_connections()
+
+        # Build the table as a single string
+        header = (f"{'Proto':<8} {'Source':<24} {'Destination':<24} "
+                  f"{'State':<8} {'Pkts':<8} {'Bytes'}")
+        separator = "-" * 80
+        lines = [header, separator]
+
+        if not connections:
+            lines.append("No active connections.")
+        else:
+            for (proto, src, sport, dst, dport), data in connections:
+                lines.append(
+                    f"{proto:<8} {src + ':' + str(sport):<24} "
+                    f"{dst + ':' + str(dport):<24} {data['state']:<8} "
+                    f"{data['packets']:<8} {data['bytes']}"
+                )
+
+        # Clear the terminal and print the updated table
+        self.terminal_output.configure(state="normal")
+        self.terminal_output.delete("1.0", "end")
+        for line in lines:
+            self.terminal_output.insert("end", line + "\n")
+        self.terminal_output.insert("end", "\nPress Ctrl+C to stop.\n")
+        self.terminal_output.see("end")
+        self.terminal_output.configure(state="disabled")
+
+        # Schedule the next tick in 2 seconds
+        self._live_conn_timer = self.after(2000, self._live_conn_tick)
+
+    def _stop_live_connections(self, event=None):
+        # Only do something if live mode is actually running
+        if self._live_conn_timer is None:
+            return
+
+        # Cancel the scheduled refresh
+        self.after_cancel(self._live_conn_timer)
+        self._live_conn_timer = None
+
+        # Re-enable the input field
+        self.terminal_input.configure(state="normal")
+        self.terminal_input.focus_set()
+
+        self.terminal_print("")
+        self.terminal_print("Live view stopped.")
 
     # ===================== TERMINAL =====================
 

@@ -15,16 +15,20 @@ VALID_ACTIONS   = ("allow", "deny", "alert")
 
 
 class TerminalController:
-    def __init__(self, monitor, print_func, refresh_rules_func=None):
+    def __init__(self, monitor, print_func, refresh_rules_func=None,
+                 start_live_connections_func=None):
         """
-        monitor            – FlowMonitor instance (firewall + detector)
-        print_func         – writes a line to the terminal UI
-        refresh_rules_func – called after rule changes so the Rules page
-                             updates automatically (can be None)
+        monitor                    – FlowMonitor instance (firewall + detector)
+        print_func                 – writes a line to the terminal UI
+        refresh_rules_func         – called after rule changes so the Rules page
+                                     updates automatically (can be None)
+        start_live_connections_func – called to start live-updating connections
+                                     view in the terminal (can be None)
         """
         self.monitor = monitor
         self.print = print_func
         self.refresh_rules = refresh_rules_func
+        self.start_live_connections = start_live_connections_func
 
         self.commands = {
             "help":       self.cmd_help,
@@ -69,7 +73,8 @@ class TerminalController:
         self.print("=" * 60)
         self.print("")
         self.print("  connections")
-        self.print("      Show active network connections.")
+        self.print("      Live view of active connections (updates every 2s).")
+        self.print("      Press Ctrl+C to stop.")
         self.print("")
         self.print("  scan <ip>")
         self.print("      Quick scan: checks all known Metasploitable 2 ports.")
@@ -111,6 +116,12 @@ class TerminalController:
         self.print("__CLEAR__")
 
     def cmd_connections(self, args):
+        if self.start_live_connections:
+            self.start_live_connections()
+        else:
+            self._print_connections_once()
+
+    def _print_connections_once(self):
         connections = self.monitor.get_active_connections()
         if not connections:
             self.print("No active connections.")
