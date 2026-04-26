@@ -1,6 +1,7 @@
-import tkinter, socket, time
+import tkinter, socket, time, subprocess, platform
 import customtkinter as ctk
-from src.db.CRUD import createRule, readRules, updateRule, deleteRule
+from src.db.CRUD import createRule, readRules, updateRule, deleteRule, createLog, readLogs
+from src.db.db_utils import get_db_path
 from ..ids.flow_monitor import FlowMonitor
 from src.ids.terminal_controller import TerminalController
 
@@ -23,41 +24,44 @@ class App(ctk.CTk):
             refresh_rules_func=lambda: refresh_rule_view(self),
             start_live_connections_func=self._start_live_connections
         )
-        # Layout: sidebar | main content
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        # Layout: top bar on row 0, main content fills row 1
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
-        # ===================== SIDEBAR =====================
-        self.sidebar_frame = ctk.CTkFrame(self, width=160, corner_radius=0)
-        self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(7, weight=1)
+        # ===================== TOP BAR =====================
+        self.topbar_frame = ctk.CTkFrame(self, height=50, corner_radius=0)
+        self.topbar_frame.grid(row=0, column=0, sticky="ew")
 
-        ctk.CTkLabel(self.sidebar_frame, text="EarlyWarning",
+        # Give every column equal weight so they share the space evenly
+        for col in range(5):
+            self.topbar_frame.columnconfigure(col, weight=1)
+
+        ctk.CTkLabel(self.topbar_frame, text="EarlyWarning",
                      font=ctk.CTkFont(size=20, weight="bold")).grid(
-                         row=0, column=0, padx=20, pady=(20, 10))
+                         row=0, column=0, padx=20, pady=10, sticky="ew")
 
-        ctk.CTkButton(self.sidebar_frame, text="Connections",
+        ctk.CTkButton(self.topbar_frame, text="Connections",
                       command=lambda: self.show_frame("connections")).grid(
-                          row=2, column=0, padx=20, pady=10, sticky="ew")
+                          row=0, column=1, padx=10, pady=10, sticky="ew")
 
-        ctk.CTkButton(self.sidebar_frame, text="Logs",
+        ctk.CTkButton(self.topbar_frame, text="Logs",
                       command=lambda: self.show_frame("logs")).grid(
-                          row=3, column=0, padx=20, pady=10, sticky="ew")
+                          row=0, column=2, padx=10, pady=10, sticky="ew")
 
-        ctk.CTkButton(self.sidebar_frame, text="Rules",
+        ctk.CTkButton(self.topbar_frame, text="Rules",
                       command=lambda: self.show_frame("rules")).grid(
-                          row=4, column=0, padx=20, pady=10, sticky="ew")
+                          row=0, column=3, padx=10, pady=10, sticky="ew")
 
-        ctk.CTkButton(self.sidebar_frame, text="Terminal",
+        ctk.CTkButton(self.topbar_frame, text="Terminal",
                       command=lambda: self.show_frame("terminal")).grid(
-                          row=5, column=0, padx=20, pady=10, sticky="ew")
+                          row=0, column=4, padx=10, pady=10, sticky="ew")
 
         # ===================== MAIN FRAMES =====================
         self.frames = {}
 
         for name in ["connections", "logs", "rules", "terminal"]:
             frame = ctk.CTkFrame(self)
-            frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+            frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=20)
             frame.grid_remove()
             self.frames[name] = frame
 
@@ -92,8 +96,18 @@ class App(ctk.CTk):
         )
         self.log_textbox.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        ctk.CTkButton(logs_frame, text="Clear Logs",
-                      command=self._clear_logs).pack(pady=(0, 10))
+        # Button row for Clear and Export
+        log_buttons = ctk.CTkFrame(logs_frame, fg_color="transparent")
+        log_buttons.pack(pady=(0, 10))
+
+        ctk.CTkButton(log_buttons, text="Clear Display",
+                      command=self._clear_logs).grid(row=0, column=0, padx=10)
+
+        ctk.CTkButton(log_buttons, text="View All Logs",
+                      command=self._export_logs).grid(row=0, column=1, padx=10)
+
+        # Load any existing logs from the database into the display
+        self._load_saved_logs()
 
         # ===================== RULES FRAME =====================
         rules = self.frames["rules"]
@@ -150,29 +164,67 @@ class App(ctk.CTk):
 
         if alert_type == "firewall_block":
             rule = data.get("rule") or {}
-            line = (f"[{timestamp}]  FIREWALL BLOCK  {src_ip}"
-                    f"  ->  proto={rule.get('protocol','?')} "
-                    f"dst={rule.get('dst_ip','?')}:{rule.get('dst_port','?')}\n")
+            message = (f"FIREWALL BLOCK  {src_ip}"
+                       f"  ->  proto={rule.get('protocol','?')} "
+                       f"dst={rule.get('dst_ip','?')}:{rule.get('dst_port','?')}")
 
         elif alert_type == "firewall_alert":
             rule = data.get("rule") or {}
-            line = (f"[{timestamp}]  FIREWALL ALERT  {src_ip}"
-                    f"  ->  proto={rule.get('protocol','?')} "
-                    f"dst={rule.get('dst_ip','?')}:{rule.get('dst_port','?')}\n")
+            message = (f"FIREWALL ALERT  {src_ip}"
+                       f"  ->  proto={rule.get('protocol','?')} "
+                       f"dst={rule.get('dst_ip','?')}:{rule.get('dst_port','?')}")
 
         else:
-            scan_type  = data.get("scan_type", "SCAN")
-            total      = data.get("total_ports", len(data.get("ports", [])))
-            desc       = data.get("description", "")
-            line = (f"[{timestamp}]  PORT SCAN [{scan_type}]  from {src_ip}"
-                    f"  |  {total} port(s) probed\n"
-                    f"            {desc}\n")
+            scan_type = data.get("scan_type", "SCAN")
+            total = data.get("total_ports", len(data.get("ports", [])))
+            desc = data.get("description", "")
+            message = (f"PORT SCAN [{scan_type}]  from {src_ip}"
+                       f"  |  {total} port(s) probed  —  {desc}")
 
+        # Save to database
+        createLog(timestamp, message)
+
+        # Show in the UI
+        line = f"[{timestamp}]  {message}\n"
         self.log_textbox.insert("end", line)
         self.log_textbox.see("end")
 
     def _clear_logs(self):
         self.log_textbox.delete("1.0", "end")
+
+    def _load_saved_logs(self):
+        logs = readLogs()
+        for log in logs:
+            line = f"[{log['timestamp']}]  {log['message']}\n"
+            self.log_textbox.insert("end", line)
+        if logs:
+            self.log_textbox.see("end")
+
+    def _export_logs(self):
+        logs = readLogs()
+        if not logs:
+            self.log_textbox.insert("end", "[System] No logs to export.\n")
+            self.log_textbox.see("end")
+            return
+
+        # Hidden file (dot prefix) next to the database.
+        # Deleted and recreated fresh each time the user exports.
+        export_path = get_db_path().parent / ".exported_logs.txt"
+        if export_path.exists():
+            export_path.unlink()
+
+        with open(export_path, "w") as f:
+            for log in logs:
+                f.write(f"[{log['timestamp']}]  {log['message']}\n")
+
+        self.log_textbox.insert("end", "[System] Logs exported and opened.\n")
+        self.log_textbox.see("end")
+
+        # Open the file in the default text editor
+        if platform.system() == "Darwin":
+            subprocess.Popen(["open", str(export_path)])
+        else:
+            subprocess.Popen(["xdg-open", str(export_path)])
 
     # ===================== CONNECTIONS =====================
 
@@ -543,28 +595,19 @@ def refresh_rule_view(app):
     for widget in app.rules_frame.winfo_children():
         widget.destroy()
 
-    # Column headers and their fixed widths in pixels.
-    # This keeps columns evenly spaced no matter what text is in them.
-    headers = [
-        ("ID",       40),
-        ("Protocol", 70),
-        ("Src IP",   120),
-        ("Dst IP",   120),
-        ("SPort",    60),
-        ("DPort",    60),
-        ("Action",   60),
-    ]
+    # Column headers — each column gets weight=1 so they share
+    # the available width equally and stretch to fill the frame.
+    headers = ["ID", "Protocol", "Src IP", "Dst IP", "SPort", "DPort", "Action"]
 
-    for col, (header, width) in enumerate(headers):
-        app.rules_frame.columnconfigure(col, minsize=width)
-        ctk.CTkLabel(app.rules_frame, text=header, width=width,
+    for col, header in enumerate(headers):
+        app.rules_frame.columnconfigure(col, weight=1)
+        ctk.CTkLabel(app.rules_frame, text=header,
                      font=("Roboto", 12, "bold")).grid(
-                         row=0, column=col, padx=5, pady=5, sticky="w")
+                         row=0, column=col, padx=5, pady=5, sticky="ew")
 
     rules = readRules()
 
     for row_num, rule in enumerate(rules, start=1):
-        # Show each field in its own column
         values = [
             rule["rid"],
             rule["protocol"],
@@ -576,9 +619,8 @@ def refresh_rule_view(app):
         ]
 
         for col, value in enumerate(values):
-            width = headers[col][1]
-            ctk.CTkLabel(app.rules_frame, text=str(value), width=width).grid(
-                row=row_num, column=col, padx=5, pady=2, sticky="w")
+            ctk.CTkLabel(app.rules_frame, text=str(value)).grid(
+                row=row_num, column=col, padx=5, pady=2, sticky="ew")
 
         # Edit button — opens the edit popup for this rule
         # We use a default argument (r=rule) in the lambda so each

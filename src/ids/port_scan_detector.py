@@ -33,8 +33,8 @@ import time
 SCAN_DESCRIPTIONS = {
     "SYN":  ("SYN (half-open) scan — sends SYN, never completes the handshake. "
              "Old logging tools miss it because no connection is 'established'."),
-    "FIN":  ("FIN scan — sends FIN to every port. RFC 793 says closed ports "
-             "must RST; open ports stay silent. Works only against some OSes."),
+    "FIN":  ("FIN scan — sends FIN to every port. Closed ports "
+             "must RST; open ports stay silent. Works only against some operating systems."),
     "NULL": ("NULL scan — no TCP flags at all. Same closed=RST / open=silent "
              "rule applies. Evasion: some firewalls pass null packets through."),
     "XMAS": ("XMAS scan — FIN+PSH+URG flags set (looks like a Christmas tree). "
@@ -60,11 +60,11 @@ class PortScanDetector:
 
     def __init__(self,
                  fast_window=10,
-                 fast_port_threshold=15,
+                 fast_port_threshold=25,
                  fast_rate_threshold=10,
-                 slow_window=120,
-                 slow_port_threshold=30,
-                 alert_cooldown=15):
+                 slow_window=180,
+                 slow_port_threshold=40,
+                 alert_cooldown=30):
 
         self.fast_window = fast_window
         self.fast_port_threshold = fast_port_threshold

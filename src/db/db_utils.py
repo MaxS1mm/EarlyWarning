@@ -35,7 +35,8 @@ def initialize_database():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS logs (
         lid INTEGER PRIMARY KEY AUTOINCREMENT,
-        message TEXT
+        timestamp TEXT NOT NULL,
+        message TEXT NOT NULL
     );
     """)
 

@@ -106,3 +106,38 @@ def deleteRule(rid):
 
     conn.commit()
     conn.close()
+
+
+# ------------------------------------------------------------------ #
+# Logs — Create
+# ------------------------------------------------------------------ #
+
+def createLog(timestamp, message):
+    """Save a log entry to the database."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO logs (timestamp, message) VALUES (?, ?)",
+        (timestamp, message)
+    )
+
+    conn.commit()
+    conn.close()
+
+
+# ------------------------------------------------------------------ #
+# Logs — Read
+# ------------------------------------------------------------------ #
+
+def readLogs():
+    """Return all log entries ordered oldest to newest."""
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM logs ORDER BY lid ASC")
+    logs = cursor.fetchall()
+
+    conn.close()
+    return logs

@@ -7,7 +7,7 @@ from .firewall import Firewall
 
 
 class FlowMonitor:
-    def __init__(self, alert_callback=None, log_file="ids_log.txt"):
+    def __init__(self, alert_callback=None):
         self.connections = {}
         self.lock = threading.Lock()
         self.sniffer = None
@@ -16,14 +16,11 @@ class FlowMonitor:
         self.portscan = PortScanDetector()
         self.firewall = Firewall()
         self.alert_callback = alert_callback
-        self.log_file = log_file
 
-    # ---------------- LOGGING ---------------- #
-
-    def log_alert(self, message):
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        with open(self.log_file, "a") as f:
-            f.write(f"[{timestamp}] {message}\n")
+        self.local_ip = None
+        # IPs we have sent traffic to — responses from these IPs
+        # are expected and should not trigger scan detection.
+        self.outbound_targets = set()
 
     # ---------------- CONNECTION TRACKING ---------------- #
 
@@ -60,18 +57,12 @@ class FlowMonitor:
         )
 
         if action == "deny":
-            msg = (f"FIREWALL BLOCKED {proto} {ip.src}:{src_port} "
-                   f"-> {ip.dst}:{dst_port}")
-            self.log_alert(msg)
             if self.alert_callback:
                 self.alert_callback(ip.src, {"type": "firewall_block",
                                              "rule": matched_rule})
             return  # drop the packet — don't track it
 
         if action == "alert":
-            msg = (f"FIREWALL ALERT {proto} {ip.src}:{src_port} "
-                   f"-> {ip.dst}:{dst_port}")
-            self.log_alert(msg)
             if self.alert_callback:
                 self.alert_callback(ip.src, {"type": "firewall_alert",
                                              "rule": matched_rule})
@@ -103,7 +94,21 @@ class FlowMonitor:
                 else:
                     self.connections[key]["state"] = "EST"
 
+        # ---------------- OUTBOUND TRACKING ---------------- #
+        # If this packet is from us going out, remember the destination
+        # so we don't flag their response traffic as a port scan.
+        is_unsolicited = True
+        if self.local_ip and ip.src == self.local_ip:
+            self.outbound_targets.add(ip.dst)
+            is_unsolicited = False
+        elif ip.src in self.outbound_targets:
+            is_unsolicited = False
+
         # ---------------- PORT SCAN DETECTION ---------------- #
+        # Only check for scans on unsolicited inbound traffic —
+        # responses from servers we contacted are normal.
+        if not is_unsolicited:
+            return
         if proto == "TCP":
             flags = int(l4.flags)
             fin = bool(flags & 0x01)
@@ -115,16 +120,12 @@ class FlowMonitor:
             scan_type = None
 
             if syn and not fin and not rst:
-                # SYN-only — classic stealth scan
                 scan_type = "SYN"
             elif fin and not syn and not rst and not psh and not urg:
-                # FIN scan
                 scan_type = "FIN"
             elif flags == 0:
-                # NULL scan — no flags at all
                 scan_type = "NULL"
             elif fin and psh and urg and not syn:
-                # XMAS scan
                 scan_type = "XMAS"
 
             if scan_type:
@@ -132,11 +133,6 @@ class FlowMonitor:
                     ip.src, dst_port, now, scan_type
                 )
                 if is_scan:
-                    msg = (f"PORT SCAN detected from {ip.src} | "
-                           f"Type: {detail['scan_type']} | "
-                           f"Ports probed: {detail['total_ports']}")
-
-                    self.log_alert(msg)
                     if self.alert_callback:
                         self.alert_callback(ip.src, detail)
 
@@ -145,10 +141,6 @@ class FlowMonitor:
                 ip.src, dst_port, now, "UDP"
             )
             if is_scan:
-                msg = (f"UDP SCAN detected from {ip.src} | "
-                       f"Ports probed: {detail['total_ports']}")
-
-                self.log_alert(msg)
                 if self.alert_callback:
                     self.alert_callback(ip.src, detail)
 
@@ -172,13 +164,13 @@ class FlowMonitor:
         """
         Find the active non-loopback network interface.
         Falls back to scapy's default if nothing is found.
+        Also sets self.local_ip to the interface's IPv4 address.
         """
         for name, addrs in scapy.conf.ifaces.items():
-            # Skip loopback
             if name == "lo" or name.startswith("lo"):
                 continue
-            # Pick the first interface that has an IPv4 address
             if hasattr(addrs, "ip") and addrs.ip and addrs.ip != "0.0.0.0":
+                self.local_ip = addrs.ip
                 return name
         return None
 
