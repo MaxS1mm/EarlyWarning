@@ -179,6 +179,12 @@ class App(ctk.CTk):
     def _refresh_connections(self):
         connections = self.monitor.get_active_connections()
 
+        # Remember where the user has scrolled to before we clear
+        # the textbox.  yview() returns a tuple like (0.0, 0.35)
+        # which represents the top and bottom of the visible area
+        # as fractions of the total content.
+        scroll_position = self.conn_textbox.yview()
+
         self.conn_textbox.configure(state="normal")
         self.conn_textbox.delete("1.0", "end")
 
@@ -196,6 +202,9 @@ class App(ctk.CTk):
                 self.conn_textbox.insert("end", line)
 
         self.conn_textbox.configure(state="disabled")
+
+        # Restore the scroll position so the view doesn't jump
+        self.conn_textbox.yview_moveto(scroll_position[0])
 
         # Schedule the next refresh in 2 seconds
         self.after(2000, self._refresh_connections)
@@ -217,7 +226,7 @@ class App(ctk.CTk):
     def _live_conn_tick(self):
         connections = self.monitor.get_active_connections()
 
-        # Build the table as a single string
+        # Build the table as a list of lines
         header = (f"{'Proto':<8} {'Source':<24} {'Destination':<24} "
                   f"{'State':<8} {'Pkts':<8} {'Bytes'}")
         separator = "-" * 80
@@ -233,14 +242,21 @@ class App(ctk.CTk):
                     f"{data['packets']:<8} {data['bytes']}"
                 )
 
+        lines.append("")
+        lines.append("Press Ctrl+C to stop.")
+
+        # Save the scroll position before clearing
+        scroll_position = self.terminal_output.yview()
+
         # Clear the terminal and print the updated table
         self.terminal_output.configure(state="normal")
         self.terminal_output.delete("1.0", "end")
         for line in lines:
             self.terminal_output.insert("end", line + "\n")
-        self.terminal_output.insert("end", "\nPress Ctrl+C to stop.\n")
-        self.terminal_output.see("end")
         self.terminal_output.configure(state="disabled")
+
+        # Restore the scroll position so the view doesn't jump
+        self.terminal_output.yview_moveto(scroll_position[0])
 
         # Schedule the next tick in 2 seconds
         self._live_conn_timer = self.after(2000, self._live_conn_tick)
