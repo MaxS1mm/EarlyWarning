@@ -95,6 +95,14 @@ class App(ctk.CTk):
         self.terminal_input = ctk.CTkEntry(terminal)
         self.terminal_input.pack(fill="x", padx=10, pady=(0, 10))
         self.terminal_input.bind("<Return>", self.handle_terminal_input)
+        self.terminal_input.bind("<Up>", self.history_up)
+        self.terminal_input.bind("<Down>", self.history_down)
+
+        # Command history — stores every command the user has typed.
+        # history_index points to where we are while scrolling with
+        # the arrow keys.  -1 means "not scrolling, show blank input".
+        self.command_history = []
+        self.history_index = -1
 
         # Show logs by default
         self.show_frame("logs")
@@ -143,8 +151,52 @@ class App(ctk.CTk):
     def handle_terminal_input(self, event=None):
         raw = self.terminal_input.get()
         self.terminal_input.delete(0, "end")
+
+        # Save the command to history (skip blank lines)
+        if raw.strip():
+            self.command_history.append(raw)
+
+        # Reset the history position so the next Up press starts
+        # from the most recent command again
+        self.history_index = -1
+
         self.terminal_print(f"> {raw}")
         self.terminal.handle(raw)
+
+    def history_up(self, event=None):
+        """Pressing Up scrolls back through previous commands."""
+        if not self.command_history:
+            return
+
+        # If we're not scrolling yet, start from the last command.
+        # Otherwise move one step further back.
+        if self.history_index == -1:
+            self.history_index = len(self.command_history) - 1
+        elif self.history_index > 0:
+            self.history_index -= 1
+
+        # Replace the current input with the historical command
+        self.terminal_input.delete(0, "end")
+        self.terminal_input.insert(0, self.command_history[self.history_index])
+
+    def history_down(self, event=None):
+        """Pressing Down scrolls forward through previous commands."""
+        if not self.command_history:
+            return
+
+        if self.history_index == -1:
+            # Already at the bottom, nothing to do
+            return
+
+        if self.history_index < len(self.command_history) - 1:
+            # Move forward one step
+            self.history_index += 1
+            self.terminal_input.delete(0, "end")
+            self.terminal_input.insert(0, self.command_history[self.history_index])
+        else:
+            # We've gone past the newest command — clear the input
+            self.history_index = -1
+            self.terminal_input.delete(0, "end")
 
     def terminal_print(self, text):
         self.terminal_output.configure(state="normal")
