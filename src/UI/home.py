@@ -355,7 +355,7 @@ class App(ctk.CTk):
     def open_new_rule_popup(self):
         """Open a popup window to create a new firewall rule."""
         popup = ctk.CTkToplevel(self)
-        popup.geometry("300x450")
+        popup.geometry("300x550")
         popup.title("New Rule")
 
         entries = {}
@@ -543,13 +543,23 @@ def refresh_rule_view(app):
     for widget in app.rules_frame.winfo_children():
         widget.destroy()
 
-    # Column headers
-    headers = ["ID", "Protocol", "Src IP", "Dst IP", "SPort", "DPort", "Action", "", ""]
+    # Column headers and their fixed widths in pixels.
+    # This keeps columns evenly spaced no matter what text is in them.
+    headers = [
+        ("ID",       40),
+        ("Protocol", 70),
+        ("Src IP",   120),
+        ("Dst IP",   120),
+        ("SPort",    60),
+        ("DPort",    60),
+        ("Action",   60),
+    ]
 
-    for col, header in enumerate(headers):
-        ctk.CTkLabel(app.rules_frame, text=header,
+    for col, (header, width) in enumerate(headers):
+        app.rules_frame.columnconfigure(col, minsize=width)
+        ctk.CTkLabel(app.rules_frame, text=header, width=width,
                      font=("Roboto", 12, "bold")).grid(
-                         row=0, column=col, padx=5, pady=5)
+                         row=0, column=col, padx=5, pady=5, sticky="w")
 
     rules = readRules()
 
@@ -566,8 +576,9 @@ def refresh_rule_view(app):
         ]
 
         for col, value in enumerate(values):
-            ctk.CTkLabel(app.rules_frame, text=str(value)).grid(
-                row=row_num, column=col, padx=5, pady=2)
+            width = headers[col][1]
+            ctk.CTkLabel(app.rules_frame, text=str(value), width=width).grid(
+                row=row_num, column=col, padx=5, pady=2, sticky="w")
 
         # Edit button — opens the edit popup for this rule
         # We use a default argument (r=rule) in the lambda so each
