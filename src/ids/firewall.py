@@ -1,12 +1,7 @@
 """
 firewall.py
 
-A software firewall that checks live packets against rules from the database.
-
-On Linux (Ubuntu 24.04+), rules are also pushed into nftables so the
-kernel itself blocks or logs traffic.  On macOS or other systems the
-firewall still works, but only inside Python — it cannot truly block
-packets at the OS level.
+Manages nftables rules on Linux and detects alert-matching packets.
 
 --- What is nftables? ---
 
@@ -22,12 +17,12 @@ We create our own table called "ids_firewall" with one chain called
 "input".  When the user turns the firewall off we simply delete the
 whole table — that removes every rule in one command.
 
---- How alert rules work ---
+--- How rules work ---
 
-"deny"  rules  -> nftables DROPs the packet (kernel discards it).
+"deny"  rules  -> nftables DROPs the packet at the kernel level.
 "alert" rules  -> nftables LOGs the packet AND ACCEPTs it.
                   Because the packet is accepted, it still reaches our
-                  Python sniffer, which fires the UI alert callback.
+                  sniffer, which fires the UI alert callback.
 "allow" rules  -> nftables ACCEPTs the packet (passes through).
 """
 
@@ -38,17 +33,12 @@ import subprocess
 class Firewall:
     def __init__(self):
         self.enabled = False
-        self.rules = []          # list of plain dicts from the database
-        self.blocked_count = 0
+        self.rules = []
         self.allowed_count = 0
         self.alert_count = 0
 
-        # We only use nftables on Linux.
-        # On macOS there is no nftables, so we skip those calls.
         self.is_linux = platform.system() == "Linux"
 
-        # The nftables table and chain names we will create.
-        # Using the "inet" family so the rules apply to both IPv4 and IPv6.
         self.TABLE_NAME = "ids_firewall"
         self.CHAIN_NAME = "input"
 
@@ -57,11 +47,6 @@ class Firewall:
     # ------------------------------------------------------------------ #
 
     def load_rules(self, db_rules):
-        """
-        Accept the list of rules that readRules() returns.
-        Each rule is a dict with keys:
-            protocol, src_ip, dst_ip, src_port, dst_port, action
-        """
         if not db_rules:
             self.rules = []
             return
@@ -85,56 +70,45 @@ class Firewall:
             self._remove_nft_table()
 
     # ------------------------------------------------------------------ #
-    # Python-level packet checking  (works on every OS)
+    # Alert detection
     #
-    # flow_monitor.py calls check_packet() for every packet the sniffer
-    # sees.  On Linux, "deny" packets never reach the sniffer because
-    # nftables already dropped them.  "alert" and "allow" packets DO
-    # reach the sniffer, so check_packet() can still fire the UI alert
-    # callback and update the counters for those.
+    # Packets blocked by nftables (deny rules) never reach the sniffer.
+    # Packets matching an "alert" rule DO reach us because nftables
+    # accepts them.  This method checks whether an incoming packet
+    # matches an alert rule so the UI can show a notification.
+    # All other packets are counted as allowed.
     # ------------------------------------------------------------------ #
 
     def _field_matches(self, rule_val, packet_val):
-        """
-        Compare one field from a rule against the actual packet value.
-        Wildcards (None, '', '*', 'any', 0, '0') mean "match anything".
-        """
         if rule_val in (None, "", "*", "any", 0, "0"):
             return True
         return str(rule_val).lower() == str(packet_val).lower()
 
-    def check_packet(self, proto, src_ip, dst_ip, src_port, dst_port):
+    def check_alert(self, proto, src_ip, dst_ip, src_port, dst_port):
         """
-        Walk the rule list top-to-bottom.  Return the first matching action.
+        Check if a packet matches any alert rule.
 
         Returns:
-            action (str)  – "allow", "deny", or "alert"
-            rule   (dict) – the matching rule, or None
+            matched (bool) – True if the packet matches an alert rule
+            rule    (dict) – the matching rule, or None
         """
         if not self.enabled:
-            return "allow", None
+            return False, None
 
         for rule in self.rules:
+            if rule.get("action") != "alert":
+                continue
+
             if (self._field_matches(rule.get("protocol"), proto) and
                     self._field_matches(rule.get("src_ip"),   src_ip) and
                     self._field_matches(rule.get("dst_ip"),   dst_ip) and
                     self._field_matches(rule.get("src_port"), src_port) and
                     self._field_matches(rule.get("dst_port"), dst_port)):
+                self.alert_count += 1
+                return True, rule
 
-                action = rule.get("action", "allow")
-
-                if action == "deny":
-                    self.blocked_count += 1
-                elif action == "alert":
-                    self.alert_count += 1
-                else:
-                    self.allowed_count += 1
-
-                return action, rule
-
-        # No rule matched — default: allow
         self.allowed_count += 1
-        return "allow", None
+        return False, None
 
     # ------------------------------------------------------------------ #
     # Stats
@@ -144,7 +118,6 @@ class Firewall:
         return {
             "enabled":    self.enabled,
             "rule_count": len(self.rules),
-            "blocked":    self.blocked_count,
             "allowed":    self.allowed_count,
             "alerted":    self.alert_count,
         }

@@ -161,13 +161,7 @@ class App(ctk.CTk):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         alert_type = data.get("type", "")
 
-        if alert_type == "firewall_block":
-            rule = data.get("rule") or {}
-            message = (f"FIREWALL BLOCK  {src_ip}"
-                       f"  ->  proto={rule.get('protocol','?')} "
-                       f"dst={rule.get('dst_ip','?')}:{rule.get('dst_port','?')}")
-
-        elif alert_type == "firewall_alert":
+        if alert_type == "firewall_alert":
             rule = data.get("rule") or {}
             message = (f"FIREWALL ALERT  {src_ip}"
                        f"  ->  proto={rule.get('protocol','?')} "

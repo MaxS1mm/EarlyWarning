@@ -51,21 +51,14 @@ class FlowMonitor:
         src_port = getattr(l4, "sport", 0)
         dst_port = getattr(l4, "dport", 0)
 
-        # ---------------- FIREWALL CHECK ---------------- #
-        action, matched_rule = self.firewall.check_packet(
+        # ---------------- FIREWALL ALERT CHECK ---------------- #
+        matched, matched_rule = self.firewall.check_alert(
             proto, ip.src, ip.dst, src_port, dst_port
         )
 
-        if action == "deny":
-            if self.alert_callback:
-                self.alert_callback(ip.src, {"type": "firewall_block",
-                                             "rule": matched_rule})
-            return  # drop the packet — don't track it
-
-        if action == "alert":
-            if self.alert_callback:
-                self.alert_callback(ip.src, {"type": "firewall_alert",
-                                             "rule": matched_rule})
+        if matched and self.alert_callback:
+            self.alert_callback(ip.src, {"type": "firewall_alert",
+                                         "rule": matched_rule})
 
         # ---------------- CONNECTION TABLE ---------------- #
         key = self._normalize_key(proto, ip.src, src_port, ip.dst, dst_port)
