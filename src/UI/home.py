@@ -473,7 +473,7 @@ class App(ctk.CTk):
         'rule' is a sqlite3.Row (dict-like) from the database.
         """
         popup = ctk.CTkToplevel(self)
-        popup.geometry("300x450")
+        popup.geometry("300x550")
         popup.title(f"Edit Rule #{rule['rid']}")
 
         entries = {}

@@ -77,7 +77,7 @@ class TerminalController:
         self.print("      Press Ctrl+C to stop.")
         self.print("")
         self.print("  scan <ip>")
-        self.print("      Quick scan: checks all known Metasploitable 2 ports.")
+        self.print("      Quick scan: checks all known vulnerable ports from Metasploitable 2.")
         self.print("  scan <ip> full")
         self.print("      Scan all ports 1-1024.")
         self.print("  scan <ip> ports <start>-<end>")
