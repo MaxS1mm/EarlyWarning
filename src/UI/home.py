@@ -1,7 +1,6 @@
-import tkinter, socket, time, subprocess, platform
+import tkinter, socket, time
 import customtkinter as ctk
 from src.db.CRUD import createRule, readRules, updateRule, deleteRule, createLog, readLogs
-from src.db.db_utils import get_db_path
 from ..ids.flow_monitor import FlowMonitor
 from src.ids.terminal_controller import TerminalController
 
@@ -203,28 +202,25 @@ class App(ctk.CTk):
     def _export_logs(self):
         logs = readLogs()
         if not logs:
-            self.log_textbox.insert("end", "[System] No logs to export.\n")
+            self.log_textbox.insert("end", "[System] No logs in database.\n")
             self.log_textbox.see("end")
             return
 
-        # Hidden file (dot prefix) next to the database.
-        # Deleted and recreated fresh each time the user exports.
-        export_path = get_db_path().parent / ".exported_logs.txt"
-        if export_path.exists():
-            export_path.unlink()
+        # Open a popup window showing all logs from the database
+        popup = ctk.CTkToplevel(self)
+        popup.geometry("800x500")
+        popup.title("All Logs")
 
-        with open(export_path, "w") as f:
-            for log in logs:
-                f.write(f"[{log['timestamp']}]  {log['message']}\n")
+        textbox = ctk.CTkTextbox(
+            popup, wrap="word", fg_color="#0d0d0d",
+            text_color="#e0e0e0", font=("Courier", 12)
+        )
+        textbox.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.log_textbox.insert("end", "[System] Logs exported and opened.\n")
-        self.log_textbox.see("end")
+        for log in logs:
+            textbox.insert("end", f"[{log['timestamp']}]  {log['message']}\n")
 
-        # Open the file in the default text editor
-        if platform.system() == "Darwin":
-            subprocess.Popen(["open", str(export_path)])
-        else:
-            subprocess.Popen(["xdg-open", str(export_path)])
+        textbox.configure(state="disabled")
 
     # ===================== CONNECTIONS =====================
 

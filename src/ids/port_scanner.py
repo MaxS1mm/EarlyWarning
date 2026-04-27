@@ -12,6 +12,7 @@ versions from Metasploitable 2.
 """
 
 import socket
+import subprocess
 import threading
 
 # ------------------------------------------------------------------ #
@@ -199,6 +200,21 @@ def run_scan(ip: str, ports: list, print_func, timeout: float = 1.0):
 
     print_func is called to send output lines back to the terminal UI.
     """
+    # Check if the host is reachable before scanning
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", "2", ip],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5
+        )
+        if result.returncode != 0:
+            print_func(f"Host {ip} is unreachable.")
+            return
+    except Exception:
+        print_func(f"Host {ip} is unreachable.")
+        return
+
     print_func(f"Scanning {ip} across {len(ports)} ports...")
     print_func("(Checking ports and grabbing service banners — may take a few seconds)")
 
