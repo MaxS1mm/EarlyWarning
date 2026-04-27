@@ -28,6 +28,7 @@ SLOW  – Spreads the probe across minutes instead of seconds so
 """
 
 import time
+from collections import Counter
 
 
 SCAN_DESCRIPTIONS = {
@@ -98,7 +99,7 @@ class PortScanDetector:
             data["port_times"][dst_port] = timestamp
 
         data["timestamps"].append(timestamp)
-        data["scan_types"].add(scan_type)
+        data["scan_types"].append((scan_type, timestamp))
 
         # Drop timestamps and ports outside the slow window
         data["timestamps"] = [
@@ -109,6 +110,10 @@ class PortScanDetector:
             port: t for port, t in data["port_times"].items()
             if timestamp - t <= self.slow_window
         }
+        data["scan_types"] = [
+            (st, t) for st, t in data["scan_types"]
+            if timestamp - t <= self.slow_window
+        ]
 
         return self._check(src_ip, timestamp)
 
@@ -121,7 +126,7 @@ class PortScanDetector:
             self.tracker[src_ip] = {
                 "port_times": {},  # { port -> timestamp of when it was first seen }
                 "timestamps": [],
-                "scan_types": set(),
+                "scan_types": [],
             }
         return self.tracker[src_ip]
 
@@ -156,20 +161,22 @@ class PortScanDetector:
 
         self.last_alert[src_ip] = now
 
-        # Choose the most descriptive scan type label
+        # Choose the scan type seen most often in the relevant window
         if slow_scan and not fast_scan:
             detected_type = "SLOW"
-        elif data["scan_types"]:
-            non_syn = [t for t in data["scan_types"] if t != "SYN"]
-            detected_type = non_syn[0] if non_syn else "SYN"
         else:
-            detected_type = "SYN"
+            type_counts = Counter(
+                st for st, t in data["scan_types"]
+                if now - t <= (self.fast_window if fast_scan else self.slow_window)
+            )
+            detected_type = type_counts.most_common(1)[0][0] if type_counts else "SYN"
 
+        all_types = {st for st, _ in data["scan_types"]}
         detail = {
             "ports":       set(active_ports.keys()),
             "scan_type":   detected_type,
             "description": SCAN_DESCRIPTIONS.get(detected_type, "Unknown scan type"),
             "total_ports": len(active_ports),
-            "scan_types":  data["scan_types"].copy(),
+            "scan_types":  all_types,
         }
         return True, detail
