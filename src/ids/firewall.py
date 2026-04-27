@@ -40,7 +40,8 @@ class Firewall:
         self.is_linux = platform.system() == "Linux"
 
         self.TABLE_NAME = "ids_firewall"
-        self.CHAIN_NAME = "input"
+        self.INPUT_CHAIN = "input"
+        self.OUTPUT_CHAIN = "output"
 
     # ------------------------------------------------------------------ #
     # Rule management
@@ -154,35 +155,45 @@ class Firewall:
 
     def _add_nft_table(self):
         """
-        Create our nftables table and a chain hooked into "input".
+        Create our nftables table with two chains:
+          - input  : filters packets coming IN to this machine
+          - output : filters packets going OUT from this machine
 
-        The chain has:
-          - type filter : we are filtering (blocking / allowing) packets
-          - hook input  : check packets coming IN to this machine
-          - priority 0  : run at the default priority
-          - policy accept : if no rule matches, let the packet through
-
-        If the table already exists, nft will just skip the creation.
+        Both chains use policy accept (if no rule matches, allow).
         """
-        # Step 1 — create the table
         self._run_nft(f"add table inet {self.TABLE_NAME}")
 
-        # Step 2 — create the chain inside that table
-        # We need to pass this as a raw string because of the braces and semicolons
-        chain_cmd = (
-            f"add chain inet {self.TABLE_NAME} {self.CHAIN_NAME} "
+        # Create the input chain (incoming traffic)
+        input_cmd = (
+            f"add chain inet {self.TABLE_NAME} {self.INPUT_CHAIN} "
             f"{{ type filter hook input priority 0 ; policy accept ; }}"
         )
         subprocess.run(
-            ["nft", chain_cmd],
+            ["nft", input_cmd],
             check=False,
             capture_output=True,
             shell=False,
         )
-        # Fallback: try with shell=True in case the above didn't work
-        # (nft sometimes needs the shell to parse the braces correctly)
         subprocess.run(
-            f"nft '{chain_cmd}'",
+            f"nft '{input_cmd}'",
+            check=False,
+            capture_output=True,
+            shell=True,
+        )
+
+        # Create the output chain (outgoing traffic)
+        output_cmd = (
+            f"add chain inet {self.TABLE_NAME} {self.OUTPUT_CHAIN} "
+            f"{{ type filter hook output priority 0 ; policy accept ; }}"
+        )
+        subprocess.run(
+            ["nft", output_cmd],
+            check=False,
+            capture_output=True,
+            shell=False,
+        )
+        subprocess.run(
+            f"nft '{output_cmd}'",
             check=False,
             capture_output=True,
             shell=True,
@@ -205,29 +216,17 @@ class Firewall:
         """Return True if the value means 'match anything'."""
         return value in (None, "", "*", "any", 0, "0")
 
-    def _build_nft_rule(self, rule, action_part):
+    def _build_nft_rule(self, rule, action_part, chain):
         """
         Turn one database rule into an nft rule string.
 
         Parameters
         ----------
         rule         : dict – one row from the rules table
-        action_part  : str  – what to append at the end, e.g. "drop" or
-                              "log prefix \"IDS_ALERT: \" accept"
-
-        Returns
-        -------
-        str – a complete "nft add rule ..." command
-
-        Example
-        -------
-        Input:  rule = {protocol: "tcp", src_ip: "10.0.0.5", dst_port: 80}
-                action_part = "drop"
-        Output: "add rule inet ids_firewall input ip protocol tcp
-                 ip saddr 10.0.0.5 tcp dport 80 drop"
+        action_part  : str  – e.g. "drop" or "log prefix \"IDS_ALERT: \" accept"
+        chain        : str  – which chain to add to ("input" or "output")
         """
-        # Start with the base command
-        parts = [f"add rule inet {self.TABLE_NAME} {self.CHAIN_NAME}"]
+        parts = [f"add rule inet {self.TABLE_NAME} {chain}"]
 
         protocol = rule.get("protocol", "any")
         src_ip   = rule.get("src_ip", "")
@@ -271,41 +270,26 @@ class Firewall:
 
     def _add_nft_rules(self):
         """
-        Loop through every loaded rule and add it to our nftables chain.
+        Loop through every loaded rule and add it to both the input
+        and output chains so rules apply in both directions.
 
         Action mapping
         --------------
         deny  ->  "drop"
-            The kernel silently discards the packet.  It never reaches
-            our Python sniffer.
-
         alert ->  "log prefix \"IDS_ALERT: \" accept"
-            The kernel writes a log line (visible in dmesg / journalctl)
-            AND lets the packet through.  Because the packet is accepted,
-            it still reaches our sniffer, where check_packet() fires the
-            alert callback so the user sees it in the UI.
-
         allow ->  "accept"
-            The kernel lets the packet through normally.
         """
         for rule in self.rules:
             action = rule.get("action", "allow")
 
             if action == "deny":
-                nft_command = self._build_nft_rule(rule, "drop")
-                self._run_nft(nft_command)
-
+                action_part = "drop"
             elif action == "alert":
-                # "log" writes to the kernel log, "accept" lets the packet
-                # continue so our Python sniffer can also see it and fire
-                # the in-app alert.
-                nft_command = self._build_nft_rule(
-                    rule,
-                    'log prefix "IDS_ALERT: " accept'
-                )
-                self._run_nft(nft_command)
-
+                action_part = 'log prefix "IDS_ALERT: " accept'
             else:
-                # "allow" -> accept
-                nft_command = self._build_nft_rule(rule, "accept")
+                action_part = "accept"
+
+            # Add the rule to both input and output chains
+            for chain in (self.INPUT_CHAIN, self.OUTPUT_CHAIN):
+                nft_command = self._build_nft_rule(rule, action_part, chain)
                 self._run_nft(nft_command)
