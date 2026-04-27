@@ -88,11 +88,27 @@ class FlowMonitor:
                     self.connections[key]["state"] = "EST"
 
         # ---------------- OUTBOUND TRACKING ---------------- #
-        # If this packet is from us going out, remember the destination
-        # so we don't flag their response traffic as a port scan.
+        # Only treat a packet as "us initiating" when WE send a SYN
+        # (TCP) or when WE send outbound UDP.  Response packets like
+        # RST or SYN-ACK that we send back to a scanner should NOT
+        # mark that scanner's IP as a trusted outbound target.
         is_unsolicited = True
         if self.local_ip and ip.src == self.local_ip:
-            self.outbound_targets.add(ip.dst)
+            is_outbound_init = False
+
+            if proto == "TCP":
+                flags = int(l4.flags)
+                syn = bool(flags & 0x02)
+                ack = bool(flags & 0x10)
+                # SYN without ACK = we are starting a new connection
+                if syn and not ack:
+                    is_outbound_init = True
+            elif proto == "UDP":
+                is_outbound_init = True
+
+            if is_outbound_init:
+                self.outbound_targets.add(ip.dst)
+
             is_unsolicited = False
         elif ip.src in self.outbound_targets:
             is_unsolicited = False
