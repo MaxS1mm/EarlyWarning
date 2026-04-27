@@ -92,15 +92,23 @@ class PortScanDetector:
         detail contains 'ports', 'scan_type', 'description', 'total_ports'.
         """
         data = self._get_or_create(src_ip)
-        data["ports"].add(dst_port)
+
+        # Only record the first time we see each port
+        if dst_port not in data["port_times"]:
+            data["port_times"][dst_port] = timestamp
+
         data["timestamps"].append(timestamp)
         data["scan_types"].add(scan_type)
 
-        # Drop timestamps outside the longest window we care about
+        # Drop timestamps and ports outside the slow window
         data["timestamps"] = [
             t for t in data["timestamps"]
             if timestamp - t <= self.slow_window
         ]
+        data["port_times"] = {
+            port: t for port, t in data["port_times"].items()
+            if timestamp - t <= self.slow_window
+        }
 
         return self._check(src_ip, timestamp)
 
@@ -111,7 +119,7 @@ class PortScanDetector:
     def _get_or_create(self, src_ip):
         if src_ip not in self.tracker:
             self.tracker[src_ip] = {
-                "ports": set(),
+                "port_times": {},  # { port -> timestamp of when it was first seen }
                 "timestamps": [],
                 "scan_types": set(),
             }
@@ -119,16 +127,23 @@ class PortScanDetector:
 
     def _check(self, src_ip, now):
         data = self.tracker[src_ip]
+        active_ports = data["port_times"]
 
         # How many timestamps fall in the fast window?
         recent = [t for t in data["timestamps"] if now - t <= self.fast_window]
 
+        # Only count ports seen within the fast window for fast scan
+        fast_ports = {
+            p for p, t in active_ports.items()
+            if now - t <= self.fast_window
+        }
+
         fast_scan = (
-            len(data["ports"]) >= self.fast_port_threshold and
+            len(fast_ports) >= self.fast_port_threshold and
             len(recent) >= self.fast_rate_threshold
         )
         slow_scan = (
-            len(data["ports"]) >= self.slow_port_threshold
+            len(active_ports) >= self.slow_port_threshold
         )
 
         if not (fast_scan or slow_scan):
@@ -145,17 +160,16 @@ class PortScanDetector:
         if slow_scan and not fast_scan:
             detected_type = "SLOW"
         elif data["scan_types"]:
-            # Prefer the non-SYN type if one exists (more interesting to teach)
             non_syn = [t for t in data["scan_types"] if t != "SYN"]
             detected_type = non_syn[0] if non_syn else "SYN"
         else:
             detected_type = "SYN"
 
         detail = {
-            "ports":       data["ports"].copy(),
+            "ports":       set(active_ports.keys()),
             "scan_type":   detected_type,
             "description": SCAN_DESCRIPTIONS.get(detected_type, "Unknown scan type"),
-            "total_ports": len(data["ports"]),
+            "total_ports": len(active_ports),
             "scan_types":  data["scan_types"].copy(),
         }
         return True, detail
