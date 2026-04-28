@@ -2,21 +2,9 @@ from .db_utils import get_connection
 import sqlite3
 
 
-# ------------------------------------------------------------------ #
-# Rules — Create
-# ------------------------------------------------------------------ #
+### Create rules
 
 def createRule(protocol, src_ip, dst_ip, src_port, dst_port, action):
-    """
-    Insert a new firewall rule into the database.
-
-    protocol : str  – "tcp", "udp", "icmp", or "any"
-    src_ip   : str  – source IP address, or "" / "any" for wildcard
-    dst_ip   : str  – destination IP address, or "" / "any" for wildcard
-    src_port : int  – source port number, or 0 for wildcard
-    dst_port : int  – destination port number, or 0 for wildcard
-    action   : str  – "allow", "deny", or "alert"
-    """
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -30,16 +18,9 @@ def createRule(protocol, src_ip, dst_ip, src_port, dst_port, action):
     conn.close()
 
 
-# ------------------------------------------------------------------ #
-# Rules — Read
-# ------------------------------------------------------------------ #
+### read rules 
 
 def readRules():
-    """
-    Return all firewall rules as a list of sqlite3.Row objects.
-    Each row behaves like a dict so you can do row["protocol"], etc.
-    Returns an empty list if there are no rules.
-    """
     conn = get_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -56,9 +37,6 @@ def readRules():
 
 
 def readRuleById(rid):
-    """
-    Return a single rule by its rid.  Returns None if not found.
-    """
     conn = get_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -70,15 +48,9 @@ def readRuleById(rid):
     return rule
 
 
-# ------------------------------------------------------------------ #
-# Rules — Update
-# ------------------------------------------------------------------ #
+### update rules
 
 def updateRule(rid, protocol, src_ip, dst_ip, src_port, dst_port, action):
-    """
-    Update an existing rule.  'rid' is the row ID of the rule to change.
-    All other parameters replace the old values.
-    """
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -93,12 +65,9 @@ def updateRule(rid, protocol, src_ip, dst_ip, src_port, dst_port, action):
     conn.close()
 
 
-# ------------------------------------------------------------------ #
-# Rules — Delete
-# ------------------------------------------------------------------ #
+## delete rules
 
 def deleteRule(rid):
-    """Delete a rule from the database by its row ID."""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -108,12 +77,9 @@ def deleteRule(rid):
     conn.close()
 
 
-# ------------------------------------------------------------------ #
-# Logs — Create
-# ------------------------------------------------------------------ #
+### create logs
 
 def createLog(timestamp, message):
-    """Save a log entry to the database."""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -126,9 +92,7 @@ def createLog(timestamp, message):
     conn.close()
 
 
-# ------------------------------------------------------------------ #
-# Logs — Read
-# ------------------------------------------------------------------ #
+### read logs
 
 def readLogs():
     """Return all log entries ordered oldest to newest."""

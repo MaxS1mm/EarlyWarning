@@ -17,14 +17,14 @@ VALID_ACTIONS   = ("allow", "deny", "alert")
 class TerminalController:
     def __init__(self, monitor, print_func, refresh_rules_func=None,
                  start_live_connections_func=None):
-        """
-        monitor                    – FlowMonitor instance (firewall + detector)
-        print_func                 – writes a line to the terminal UI
-        refresh_rules_func         – called after rule changes so the Rules page
-                                     updates automatically (can be None)
-        start_live_connections_func – called to start live-updating connections
-                                     view in the terminal (can be None)
-        """
+
+        #monitor                      FlowMonitor instance (firewall + detector)
+        #print_func                   writes a line to the terminal UI
+        #refresh_rules_func           called after rule changes so the Rules page
+        #                             updates automatically (can be None)
+        #start_live_connections_func  called to start live-updating connections
+        #                             view in the terminal (can be None)
+
         self.monitor = monitor
         self.print = print_func
         self.refresh_rules = refresh_rules_func
@@ -43,7 +43,7 @@ class TerminalController:
             "detector":   self.cmd_detector,
         }
 
-    # ===================== PARSER =====================
+    #PARSER 
 
     def parse(self, raw_input):
         parts = raw_input.strip().split()
@@ -51,7 +51,7 @@ class TerminalController:
             return None, []
         return parts[0].lower(), parts[1:]
 
-    # ===================== ENTRY POINT =====================
+    # ENTRY POINT 
 
     def handle(self, raw_input):
         cmd, args = self.parse(raw_input)
@@ -65,7 +65,7 @@ class TerminalController:
         else:
             self.print("Unknown command. Type 'help' for a list.")
 
-    # ===================== COMMANDS =====================
+    #COMMANDS
 
     def cmd_help(self, args):
         self.print("=" * 60)
@@ -134,9 +134,7 @@ class TerminalController:
                 f"{data['state']:<6} {data['packets']}"
             )
 
-    # ------------------------------------------------------------------ #
     # SCAN
-    # ------------------------------------------------------------------ #
 
     def cmd_scan(self, args):
         if not args:
@@ -172,18 +170,15 @@ class TerminalController:
 
         threading.Thread(target=_run, daemon=True).start()
 
-    # ------------------------------------------------------------------ #
     # RULES — list, add, edit, delete
-    # ------------------------------------------------------------------ #
 
     def cmd_rules(self, args):
-        """Print all firewall rules from the database."""
+        # Print all firewall rules from the database.
         rules = readRules()
         if not rules:
             self.print("No rules in database.")
             return
 
-        # Table header
         header = (f"{'ID':<5} {'Protocol':<10} {'Src IP':<16} {'Dst IP':<16} "
                   f"{'SPort':<7} {'DPort':<7} Action")
         self.print(header)
@@ -201,13 +196,7 @@ class TerminalController:
             )
 
     def cmd_addrule(self, args):
-        """
-        Add a new firewall rule.
-        Usage: addrule <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>
-
-        Use 'any' for wildcard IPs and '0' for wildcard ports.
-        Example: addrule tcp any 192.168.1.10 0 80 deny
-        """
+        # add firewall rule
         if len(args) != 6:
             self.print("Usage: addrule <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>")
             self.print("Example: addrule tcp any 192.168.1.10 0 80 deny")
@@ -240,7 +229,6 @@ class TerminalController:
             self.print("Ports must be between 0 and 65535.")
             return
 
-        # Normalise wildcard IPs — store as empty string in the database
         if src_ip.lower() in ("any", "*", "0"):
             src_ip = ""
         if dst_ip.lower() in ("any", "*", "0"):
@@ -255,12 +243,7 @@ class TerminalController:
             self.refresh_rules()
 
     def cmd_editrule(self, args):
-        """
-        Update an existing rule by its ID.
-        Usage: editrule <id> <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>
-
-        Example: editrule 3 tcp any 192.168.1.10 0 443 alert
-        """
+        # update existing rule
         if len(args) != 7:
             self.print("Usage: editrule <id> <protocol> <src_ip> <dst_ip> <src_port> <dst_port> <action>")
             self.print("Example: editrule 3 tcp any 192.168.1.10 0 443 alert")
@@ -320,10 +303,7 @@ class TerminalController:
             self.refresh_rules()
 
     def cmd_deleterule(self, args):
-        """
-        Delete a rule by its ID.
-        Usage: deleterule <id>
-        """
+        # delete a rule from the database
         if len(args) != 1:
             self.print("Usage: deleterule <id>")
             return
@@ -346,9 +326,7 @@ class TerminalController:
         if self.refresh_rules:
             self.refresh_rules()
 
-    # ------------------------------------------------------------------ #
     # FIREWALL
-    # ------------------------------------------------------------------ #
 
     def cmd_firewall(self, args):
         fw = self.monitor.firewall
@@ -392,9 +370,7 @@ class TerminalController:
         else:
             self.print(f"Unknown sub-command '{sub}'. Use: status, on, off")
 
-    # ------------------------------------------------------------------ #
     # DETECTOR
-    # ------------------------------------------------------------------ #
 
     def cmd_detector(self, args):
         det = self.monitor.portscan
@@ -417,7 +393,7 @@ class TerminalController:
             self.print("")
         self.print("=" * 55)
 
-    # ===================== HELPERS =====================
+    # HELPERS
 
     def _valid_ip(self, ip):
         return bool(re.match(r"^\d{1,3}(\.\d{1,3}){3}$", ip))

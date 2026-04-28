@@ -23,11 +23,12 @@ class App(ctk.CTk):
             refresh_rules_func=lambda: refresh_rule_view(self),
             start_live_connections_func=self._start_live_connections
         )
+
         # Layout: top bar on row 0, main content fills row 1
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        # ===================== TOP BAR =====================
+        #  TOP BAR 
         self.topbar_frame = ctk.CTkFrame(self, height=50, corner_radius=0)
         self.topbar_frame.grid(row=0, column=0, sticky="ew")
 
@@ -55,7 +56,7 @@ class App(ctk.CTk):
                       command=lambda: self.show_frame("terminal")).grid(
                           row=0, column=4, padx=10, pady=10, sticky="ew")
 
-        # ===================== MAIN FRAMES =====================
+        #MAIN FRAMES
         self.frames = {}
 
         for name in ["connections", "logs", "rules", "terminal"]:
@@ -64,7 +65,7 @@ class App(ctk.CTk):
             frame.grid_remove()
             self.frames[name] = frame
 
-        # ===================== CONNECTIONS FRAME =====================
+        #CONNECTIONS FRAME
         conn_frame = self.frames["connections"]
         conn_frame.grid_rowconfigure(1, weight=1)
         conn_frame.grid_columnconfigure(0, weight=1)
@@ -81,7 +82,7 @@ class App(ctk.CTk):
         # Refresh the connections list every 2 seconds
         self._refresh_connections()
 
-        # ===================== LOGS FRAME =====================
+        #LOGS FRAME
         logs_frame = self.frames["logs"]
         logs_frame.grid_rowconfigure(0, weight=1)
         logs_frame.grid_columnconfigure(0, weight=1)
@@ -108,7 +109,7 @@ class App(ctk.CTk):
         # Load any existing logs from the database into the display
         self._load_saved_logs()
 
-        # ===================== RULES FRAME =====================
+        #RULES FRAME
         rules = self.frames["rules"]
 
         ctk.CTkButton(rules, text="Create New Rule",
@@ -117,7 +118,7 @@ class App(ctk.CTk):
         self.rules_frame = ctk.CTkScrollableFrame(rules)
         self.rules_frame.pack(fill="both", expand=True)
 
-        # ===================== TERMINAL FRAME =====================
+        # TERMINAL FRAME
         terminal = self.frames["terminal"]
 
         self.terminal_output = ctk.CTkTextbox(
@@ -148,14 +149,14 @@ class App(ctk.CTk):
         # Show logs by default
         self.show_frame("logs")
 
-    # ===================== NAVIGATION =====================
+    # NAVIGATION
 
     def show_frame(self, name):
         for frame in self.frames.values():
             frame.grid_remove()
         self.frames[name].grid()
 
-    # ===================== LOGGING =====================
+    #LOGGING
 
     def log_alert(self, src_ip, data):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -216,7 +217,7 @@ class App(ctk.CTk):
 
         textbox.configure(state="disabled")
 
-    # ===================== CONNECTIONS =====================
+    # CONNECTIONS
 
     def _refresh_connections(self):
         connections = self.monitor.get_active_connections()
@@ -251,7 +252,7 @@ class App(ctk.CTk):
         # Schedule the next refresh in 2 seconds
         self.after(2000, self._refresh_connections)
 
-    # ===================== LIVE CONNECTIONS (TERMINAL) =====================
+    # LIVE CONNECTIONS (TERMINAL)
 
     def _start_live_connections(self):
         # If already running, do nothing
@@ -319,7 +320,7 @@ class App(ctk.CTk):
         self.terminal_print("")
         self.terminal_print("Live view stopped.")
 
-    # ===================== TERMINAL =====================
+    # TERMINAL
 
     def handle_terminal_input(self, event=None):
         raw = self.terminal_input.get()
@@ -337,7 +338,7 @@ class App(ctk.CTk):
         self.terminal.handle(raw)
 
     def history_up(self, event=None):
-        """Pressing Up scrolls back through previous commands."""
+        # press up to scroll through previous commands
         if not self.command_history:
             return
 
@@ -353,7 +354,7 @@ class App(ctk.CTk):
         self.terminal_input.insert(0, self.command_history[self.history_index])
 
     def history_down(self, event=None):
-        """Pressing Down scrolls forward through previous commands."""
+        #press down to scroll through previous commands
         if not self.command_history:
             return
 
@@ -381,7 +382,7 @@ class App(ctk.CTk):
         self.terminal_output.see("end")
         self.terminal_output.configure(state="disabled")
 
-    # ===================== NETWORK =====================
+    #NETWORK
 
     def get_my_ip(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -392,7 +393,7 @@ class App(ctk.CTk):
             s.close()
         return ip
 
-    # ===================== RULE POPUPS =====================
+    #RULE POPUPS
 
     def open_new_rule_popup(self):
         """Open a popup window to create a new firewall rule."""
@@ -402,7 +403,7 @@ class App(ctk.CTk):
 
         entries = {}
 
-        # Protocol — dropdown instead of free text so the user can't
+        # Protocol: dropdown instead of free text so the user can't
         # type something invalid like "http"
         ctk.CTkLabel(popup, text="Protocol").pack(pady=(10, 0))
         protocol_menu = ctk.CTkOptionMenu(popup, values=["tcp", "udp", "icmp", "any"])
@@ -423,7 +424,7 @@ class App(ctk.CTk):
             entry.pack()
             entries[field] = entry
 
-        # Action — dropdown
+        # Action
         ctk.CTkLabel(popup, text="Action").pack(pady=(10, 0))
         action_menu = ctk.CTkOptionMenu(popup, values=["allow", "deny", "alert"])
         action_menu.pack()
@@ -466,12 +467,7 @@ class App(ctk.CTk):
         ctk.CTkButton(popup, text="Submit", command=submit).pack(pady=15)
 
     def open_edit_rule_popup(self, rule):
-        """
-        Open a popup window pre-filled with an existing rule's values
-        so the user can edit and save changes.
-
-        'rule' is a sqlite3.Row (dict-like) from the database.
-        """
+        # open a popup to edit a current rule
         popup = ctk.CTkToplevel(self)
         popup.geometry("300x550")
         popup.title(f"Edit Rule #{rule['rid']}")
@@ -553,9 +549,8 @@ class App(ctk.CTk):
         ctk.CTkButton(popup, text="Save Changes", command=submit).pack(pady=15)
 
 
-# ================================================================== #
-# Standalone functions (called from outside the class too)
-# ================================================================== #
+
+# Standalone functions
 
 def start_app():
     app = App()
@@ -574,11 +569,7 @@ def start_app():
 
 
 def refresh_rule_view(app):
-    """
-    Clear and redraw the rules table on the Rules page.
-    Each rule gets an Edit and Delete button.
-    Also reloads the firewall so any rule changes take effect immediately.
-    """
+    #clear and reload rules on rules page -- occurs when rules added, deleted, or edited
     app.monitor.reload_firewall()
 
     # Remove all widgets currently in the scrollable frame
@@ -612,9 +603,7 @@ def refresh_rule_view(app):
             ctk.CTkLabel(app.rules_frame, text=str(value)).grid(
                 row=row_num, column=col, padx=5, pady=2, sticky="ew")
 
-        # Edit button — opens the edit popup for this rule
-        # We use a default argument (r=rule) in the lambda so each
-        # button captures its own rule instead of all sharing the last one.
+        # Edit button 
         ctk.CTkButton(
             app.rules_frame, text="Edit", width=50,
             command=lambda r=rule: app.open_edit_rule_popup(r)

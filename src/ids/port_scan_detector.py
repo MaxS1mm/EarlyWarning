@@ -1,32 +1,3 @@
-"""
-port_scan_detector.py
-
-Detects several common port-scanning techniques that attackers use to
-stay hidden while mapping a target's open ports.
-
-Scan types detected
--------------------
-SYN   – Half-open scan. Sends SYN but never finishes the handshake.
-        Many older logging systems only record completed connections, so
-        this scan often goes unnoticed.
-
-FIN   – Sends a FIN packet to every port. Closed ports reply with RST;
-        open ports silently drop it. Works because the TCP spec says a
-        port with no listener should RST an unexpected FIN.
-
-NULL  – Same idea as FIN but with *no* TCP flags set at all.
-
-XMAS  – Sets FIN + PSH + URG simultaneously (it "lights up like a
-        Christmas tree"). Same open/closed behaviour as FIN/NULL.
-
-UDP   – Sends UDP datagrams. An ICMP "port unreachable" reply means
-        closed; no reply might mean open. Slower than TCP scans.
-
-SLOW  – Spreads the probe across minutes instead of seconds so
-        rate-based detectors don't fire. We catch it by tracking a
-        longer time window with a lower rate requirement.
-"""
-
 import time
 from collections import Counter
 
@@ -48,17 +19,6 @@ SCAN_DESCRIPTIONS = {
 
 
 class PortScanDetector:
-    """
-    Parameters
-    ----------
-    fast_window          Seconds to look back for a fast scan burst.
-    fast_port_threshold  Distinct ports needed in fast_window to raise alert.
-    fast_rate_threshold  Packets needed in fast_window to raise alert.
-    slow_window          Longer look-back window for slow scans.
-    slow_port_threshold  Distinct ports over slow_window to raise a slow-scan alert.
-    alert_cooldown       Minimum seconds between repeated alerts for the same IP.
-    """
-
     def __init__(self,
                  fast_window=10,
                  fast_port_threshold=25,
@@ -84,14 +44,7 @@ class PortScanDetector:
 
     def process_packet(self, src_ip: str, dst_port: int,
                        timestamp: float, scan_type: str = "SYN"):
-        """
-        Record one suspicious packet and check whether it looks like a scan.
-
-        scan_type should be one of: "SYN", "FIN", "NULL", "XMAS", "UDP".
-
-        Returns (is_scan: bool, detail: dict | None).
-        detail contains 'ports', 'scan_type', 'description', 'total_ports'.
-        """
+        
         data = self._get_or_create(src_ip)
 
         # Only record the first time we see each port
@@ -117,9 +70,7 @@ class PortScanDetector:
 
         return self._check(src_ip, timestamp)
 
-    # ------------------------------------------------------------------ #
-    # Internal helpers
-    # ------------------------------------------------------------------ #
+    # helpers
 
     def _get_or_create(self, src_ip):
         if src_ip not in self.tracker:

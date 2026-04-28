@@ -1,24 +1,9 @@
-"""
-port_scanner.py
-
-Educational port and vulnerability scanner.
-Maps open ports against known Metasploitable 2 vulnerabilities so users
-can see exactly why each open port is dangerous.
-
-Now also does 'banner grabbing' — it connects to each open port and reads
-the first message the service sends back. That message usually contains the
-software name and version, which we compare against the known-vulnerable
-versions from Metasploitable 2.
-"""
-
 import socket
 import subprocess
 import threading
 
-# ------------------------------------------------------------------ #
 # Metasploitable 2 vulnerability database
 # Each entry: port -> short description of the vulnerability
-# ------------------------------------------------------------------ #
 METASPLOITABLE_VULNS = {
     21:    "FTP vsftpd 2.3.4 BACKDOOR: a smiley ':)' in the username "
            "triggers a shell listener on port 6200.",
@@ -49,7 +34,6 @@ METASPLOITABLE_VULNS = {
     57348: "Java RMI high port: random port opened by RMI, same deserialisation attack as port 1099.",
 }
 
-# ------------------------------------------------------------------ #
 # The exact version strings that Metasploitable 2 shows in its banners.
 #
 # When we connect to a port, the service usually sends a greeting message
@@ -62,7 +46,6 @@ METASPLOITABLE_VULNS = {
 #
 # An empty string ("") means just connecting to that port is proof enough
 # (e.g. port 1524 instantly drops you into a root shell on Metasploitable 2).
-# ------------------------------------------------------------------ #
 VULNERABLE_VERSION_STRINGS = {
     21:    "vsFTPd 2.3.4",        # banner: "220 (vsFTPd 2.3.4)"
     22:    "OpenSSH_4.7p1",       # banner: "SSH-2.0-OpenSSH_4.7p1 Debian-8ubuntu1"
@@ -82,11 +65,9 @@ VULNERABLE_VERSION_STRINGS = {
     57348: "",                    # RMI high port — being open is enough
 }
 
-# ------------------------------------------------------------------ #
 # Some services only reply after we send them a request first.
 # This dict maps port -> the bytes we need to send to get a banner back.
 # Ports not listed here send a banner immediately on connect.
-# ------------------------------------------------------------------ #
 SEND_PROBE = {
     80:   b"HEAD / HTTP/1.0\r\nHost: localhost\r\n\r\n",
     8180: b"HEAD / HTTP/1.0\r\nHost: localhost\r\n\r\n",
@@ -97,14 +78,6 @@ QUICK_PORTS = sorted(METASPLOITABLE_VULNS.keys())
 
 
 def _grab_banner(ip: str, port: int, timeout: float = 2.0) -> str:
-    """
-    Connect to a port and read whatever text the service sends back.
-    This text is called a 'banner' and usually contains the software
-    name and version number.
-
-    Returns the banner as a plain string.
-    Returns an empty string if nothing came back or an error occurred.
-    """
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
@@ -121,8 +94,6 @@ def _grab_banner(ip: str, port: int, timeout: float = 2.0) -> str:
         sock.close()
 
         # Convert the raw bytes to a readable string.
-        # 'errors=ignore' skips any bytes that aren't valid UTF-8 text
-        # (binary protocols like VNC mix binary and text).
         return banner_bytes.decode("utf-8", errors="ignore")
 
     except Exception:
@@ -131,14 +102,6 @@ def _grab_banner(ip: str, port: int, timeout: float = 2.0) -> str:
 
 
 def _check_version(port: int, banner: str):
-    """
-    Look for the known-vulnerable version string inside the banner text.
-
-    Returns:
-        True  — the banner contains the vulnerable version string
-        False — the banner was read but the version string wasn't in it
-        None  — we have no version string to check for this port
-    """
     # If we don't have a version string for this port, we can't check it
     if port not in VULNERABLE_VERSION_STRINGS:
         return None
@@ -150,25 +113,15 @@ def _check_version(port: int, banner: str):
     if version_str == "":
         return True
 
-    # Search the banner for our version string (case-insensitive so we
-    # don't miss differences like "PostFix" vs "Postfix")
+    # Search the banner for our version string 
     return version_str.lower() in banner.lower()
 
 
 def _scan_one_port(ip: str, port: int, timeout: float, results: dict):
-    """
-    Check whether one port is open. If it is, grab its banner and
-    compare the version against the known-vulnerable Metasploitable 2 version.
-
-    Stores a dict in results[port] with three fields:
-        'open'          - True if the port accepted our connection
-        'banner'        - the text the service sent back (may be empty)
-        'version_match' - True/False/None (see _check_version)
-    """
     entry = {"open": False, "banner": "", "version_match": None}
 
     try:
-        # Step 1: quick connect test — does the port even accept connections?
+        # quick connect test — does the port even accept connections?
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         connected = sock.connect_ex((ip, port)) == 0
@@ -177,29 +130,22 @@ def _scan_one_port(ip: str, port: int, timeout: float, results: dict):
         entry["open"] = connected
 
         if connected:
-            # Step 2: grab the banner so we can check the version
-            # Give it a little more time than the basic connect check
+            # grab the banner so we can check the version
             banner = _grab_banner(ip, port, timeout=timeout + 1.0)
             entry["banner"] = banner
 
-            # Step 3: compare the banner against the vulnerable version string
+            #compare the banner against the vulnerable version string
             entry["version_match"] = _check_version(port, banner)
 
     except Exception:
-        pass  # Leave defaults: port treated as closed / version unknown
+        pass  # port treated as closed / version unknown
 
     results[port] = entry
 
 
 def run_scan(ip: str, ports: list, print_func, timeout: float = 1.0):
-    """
-    Scan *ports* on *ip*.
-
-    Uses one thread per port so all ports are checked at the same time —
-    much faster than scanning one at a time.
-
-    print_func is called to send output lines back to the terminal UI.
-    """
+    #multi threaded port checking
+    
     # Check if the host is reachable before scanning
     try:
         result = subprocess.run(

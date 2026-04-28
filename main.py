@@ -1,6 +1,7 @@
 import sys
 import os
 
+#ensure user has root privileges
 def ensure_root():
     if os.geteuid() != 0:
         print("Root privileges required. Restarting with sudo...")
@@ -10,6 +11,7 @@ def ensure_root():
             print(f"Failed to obtain root privileges: {e}")
             sys.exit(1)
 
+#application entry point
 def main():
     ensure_root()
 

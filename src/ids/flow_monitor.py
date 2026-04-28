@@ -22,7 +22,7 @@ class FlowMonitor:
         # are expected and should not trigger scan detection.
         self.outbound_targets = set()
 
-    # ---------------- CONNECTION TRACKING ---------------- #
+    #CONNECTION TRACKING
 
     def _normalize_key(self, proto, src, sport, dst, dport):
         if (src, sport) < (dst, dport):
@@ -51,7 +51,7 @@ class FlowMonitor:
         src_port = getattr(l4, "sport", 0)
         dst_port = getattr(l4, "dport", 0)
 
-        # ---------------- FIREWALL ALERT CHECK ---------------- #
+        #FIREWALL ALERT CHECK
         matched, matched_rule = self.firewall.check_alert(
             proto, ip.src, ip.dst, src_port, dst_port
         )
@@ -60,7 +60,7 @@ class FlowMonitor:
             self.alert_callback(ip.src, {"type": "firewall_alert",
                                          "rule": matched_rule})
 
-        # ---------------- CONNECTION TABLE ---------------- #
+        # CONNECTION TABLE 
         key = self._normalize_key(proto, ip.src, src_port, ip.dst, dst_port)
 
         with self.lock:
@@ -87,7 +87,7 @@ class FlowMonitor:
                 else:
                     self.connections[key]["state"] = "EST"
 
-        # ---------------- OUTBOUND TRACKING ---------------- #
+        # OUTBOUND TRACKING 
         # Only treat a packet as "us initiating" when WE send a SYN
         # (TCP) or when WE send outbound UDP.  Response packets like
         # RST or SYN-ACK that we send back to a scanner should NOT
@@ -113,7 +113,7 @@ class FlowMonitor:
         elif ip.src in self.outbound_targets:
             is_unsolicited = False
 
-        # ---------------- PORT SCAN DETECTION ---------------- #
+        # PORT SCAN DETECTION 
         # Only check for scans on unsolicited inbound traffic —
         # responses from servers we contacted are normal.
         if not is_unsolicited:
@@ -153,7 +153,7 @@ class FlowMonitor:
                 if self.alert_callback:
                     self.alert_callback(ip.src, detail)
 
-    # ---------------- FIREWALL RELOAD ---------------- #
+    # RELOAD FIREWALL 
 
     def reload_firewall(self):
         from src.db.CRUD import readRules
@@ -167,7 +167,7 @@ class FlowMonitor:
         if was_enabled:
             self.firewall.enable()
 
-    # ---------------- SNIFFER CONTROL ---------------- #
+    # SNIFFER CONTROL
 
     def _get_iface(self):
         """
@@ -194,7 +194,7 @@ class FlowMonitor:
         if self.sniffer and self.sniffer.running:
             self.sniffer.stop()
 
-    # ---------------- CONNECTION VIEW ---------------- #
+    # CONNECTION VIEW
 
     def get_active_connections(self):
         now = time.time()

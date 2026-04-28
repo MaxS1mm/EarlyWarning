@@ -12,7 +12,7 @@ def get_db_path() -> Path:
 def database_exists() -> bool:
     return get_db_path().exists()
 
-
+#create database if not already existing
 def initialize_database():
     db_path = get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
